@@ -104,13 +104,10 @@ map(\
 |.[]\
     "
 elif [[ "$1" == "add_total" ]];then shift
-  : ${lunchtime:="15"}
   jq -s -c \
-    --argjson lunchtime "$lunchtime" \
     "\
     .+=[{total:(.|map(.duration)|add|.*100|floor|./100)}\
     |.overtime=(.total-35|.*10|floor|./10|.*60)\
-    |.overtime_without_lunch=(.total-35-(\$lunchtime/60 * 5)|.*10|floor|./10|.*60)\
     ]\
   |.[]\
     "
