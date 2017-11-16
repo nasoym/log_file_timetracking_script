@@ -157,7 +157,7 @@ elif [[ "$1" == "last_weeks" ]];then shift
     <(week="-2" $0 this_week) \
     <(week="-1" $0 this_week) \
     <(week="-0" $0 this_week) \
-    | jq -s -c 'map(select(has("total"))|.total)|add|./=3'
+    | jq -s -c 'map(select(has("total"))|.total)|add|./=3|.*=100|floor|./=100'
 
 fi
 
