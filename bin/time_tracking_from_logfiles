@@ -1,0 +1,164 @@
+#!/usr/bin/env bash
+
+set -eufo pipefail
+trap 'echo "$0: line ${LINENO}: exiting because of error";exit 1' ERR
+
+while getopts "a:h?" options; do case $options in
+  a) a="$OPTARG" ;;
+  h|?) help; exit ;;
+esac; done; shift $((OPTIND - 1))
+
+: ${working_time_file:="${HOME}/.time_tracking_from_logfiles"}
+
+if [[ "$#" -eq 0 ]];then
+  :
+
+elif [[ "$1" == "raw_on" ]];then shift
+  raw_log_data="$( find /var/log -maxdepth 1 -type f -name "accountpolicy.log.[0-9]*.gz" 2>/dev/null \
+    | sort | sed '$d' \
+    | parallel -r 'gzip -dc {}' \
+    | tr '\0' '\n' \
+    ;  cat /var/log/accountpolicy.log \
+  )"
+  echo "$raw_log_data"
+
+elif [[ "$1" == "raw_off" ]];then shift
+  raw_log_data="$( find /private/var/log -maxdepth 1 -type f -name "system.log.[0-9]*.gz" \
+    | parallel -r 'gzip -dc {}' \
+    | tr '\0' '\n' \
+    ; cat /private/var/log/system.log \
+  )"
+  echo "$raw_log_data"
+
+elif [[ "$1" == "off" ]];then shift
+  # : ${system_log_filter:="device_generate_lock_screen_screenshot"}
+  # : ${system_log_filter:="handle_will_sleep_auth_and_shield_windows"}
+  # Oct  5 16:35:58 nasoym com.apple.xpc.launchd[1] (com.apple.xpc.launchd.domain.user.501): Service "com.apple.xpc.launchd.unmanaged.loginwindow.96" tried to hijack endpoint "com.apple.tsm.uiserver" from owner: com.apple.SystemUIServer.agent
+  : ${system_log_filter:="com.apple.xpc.launchd.unmanaged.loginwindow"}
+  
+  raw_log_data="$( $0 raw_off | grep "${system_log_filter}" )"
+  raw_timestamps="$( awk '{print $1,$2,$3}' <<<"${raw_log_data}" \
+    | parallel 'gdate -d "$(echo {})" "+%F %T"' \
+    | sort
+  )"
+  raw_json_data="$(jq -R 'split(" ")' <<<"${raw_timestamps}" \
+    | jq -s 'map({date:.[0],time:.[1]})|group_by(.date)|map({date:(.[0].date),time:(.|sort_by(.time))})'
+  )"
+  # jq -c 'map(.time=(.time[-1].time)|.type="stop")[]' <<<"${raw_json_data}"
+  # jq -c '.' <<<"${raw_json_data}"
+  # jq 'map(.type="stop")[]' <<<"${raw_json_data}"
+  jq -c 'map(.time|=(map(.type="stop")))[]' <<<"${raw_json_data}"
+
+elif [[ "$1" == "on" ]];then shift
+  : ${system_log_filter:="AuthenticationAllowed"}
+  raw_log_data="$( $0 raw_on | grep "${system_log_filter}" )"
+  raw_timestamps="$( awk '{print $1,$2,$3}' <<<"${raw_log_data}" \
+    | parallel 'gdate -d "$(echo {})" "+%F %T"' \
+    | sort
+  )"
+  raw_json_data="$(jq -R 'split(" ")' <<<"${raw_timestamps}" \
+    | jq -s 'map({date:.[0],time:.[1]})|group_by(.date)|map({date:(.[0].date),time:(.|sort_by(.time))})'
+  )"
+  # jq -c 'map(.time=(.time[0].time)|.type="start")[]' <<<"${raw_json_data}"
+  jq -c 'map(.time|=(map(.type="start")))[]' <<<"${raw_json_data}"
+
+  
+elif [[ "$1" == "show_joined" ]];then shift
+  : ${default_stop_time:="16:00:00"}
+  ( $0 on ; $0 off ) | jq -s -c "\
+group_by(.date)\
+|map({\
+  date:.[0].date,\
+  events:(.|map(.time)|flatten|map(del(.date))|sort_by(.time))\
+})\
+|map(.start=(.events|map(select(.type==\"start\"))|first|.time))\
+|map(.stop=(.events|map(select(.type==\"stop\"))|last|.time//\"${default_stop_time}\"))\
+|map(del(.events))\
+|map(if(.start==null) then empty else . end)\
+|sort_by(.date)\
+|.[]\
+    "
+# |map(\
+#   (.events|map(.type==\"start\")|rindex(true)) as \$last_start \
+#   |.stop=(.events[\$last_start:]|\
+#     map(select(.type==\"stop\"))|first|.time//\"16:00:00\" \
+#   )\
+# )\
+
+elif [[ "$1" == "calc_duration" ]];then shift
+  jq -s -c "\
+map(\
+  .duration=(\
+    (\
+      (.stop|split(\":\")[0]|tonumber)\
+      + (.stop|split(\":\")[1]|tonumber/60)\
+    )\
+    - \
+    (\
+      (.start|split(\":\")[0]|tonumber)\
+      + (.start|split(\":\")[1]|tonumber/60)\
+    )\
+  )\
+  |.duration=(.duration*100|floor|./100)
+)\
+|.[]\
+    "
+elif [[ "$1" == "add_total" ]];then shift
+  : ${lunchtime:="15"}
+  jq -s -c \
+    --argjson lunchtime "$lunchtime" \
+    "\
+    .+=[{total:(.|map(.duration)|add|.*100|floor|./100)}\
+    |.overtime=(.total-35|.*10|floor|./10|.*60)\
+    |.overtime_without_lunch=(.total-35-(\$lunchtime/60 * 5)|.*10|floor|./10|.*60)\
+    ]\
+  |.[]\
+    "
+
+elif [[ "$1" == "dates_of_this_week" ]];then shift
+  : ${week:="- 0"}
+  : ${day:="$(gdate -d "${week} week" +%F)"}
+
+  seq 0 4 \
+    | parallel "gdate -d \"${day} - \$(( \$(gdate +%u) - 1)) days + {} days\" +%F" \
+    | sort \
+    | jq -R '.' \
+    | jq -c -s '.'
+
+elif [[ "$1" == "entries_of_this_week" ]];then shift
+  cat ${working_time_file} \
+    | jq \
+      -s -c \
+      --argjson this_week "$($0 dates_of_this_week)" \
+      'map(select([.date]|inside($this_week)))[]'
+
+elif [[ "$1" == "this_week" ]];then shift
+  $0 entries_of_this_week \
+    | $0 calc_duration \
+    | $0 add_total
+
+elif [[ "$1" == "duration_from_logs" ]];then shift
+  $0 show_joined \
+    | $0 calc_duration
+
+elif [[ "$1" == "update" ]];then shift
+  new_entries_with_date_keys="$( $0 show_joined \
+      | jq -s '.' \
+      | jq 'map({"\(.date)":.})|add'
+    )"
+  cat ${working_time_file} \
+    | jq -s '.' \
+    | jq 'map({"\(.date)":.})|add' \
+    | jq -c --argjson new_entries "${new_entries_with_date_keys}" \
+      '. + $new_entries |flatten |sort_by(.date)|.[]' \
+    | sponge ${working_time_file}
+
+elif [[ "$1" == "last_weeks" ]];then shift
+  cat \
+    <(week="-2" $0 this_week) \
+    <(week="-1" 40 this_week) \
+    <(week="-0" $0 this_week) \
+    | jq -s -c 'map(select(has("total"))|.total)|add|./=3'
+
+fi
+
