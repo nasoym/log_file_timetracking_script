@@ -3,6 +3,15 @@
 set -eufo pipefail
 trap 'echo "$0: line ${LINENO}: exiting because of error";exit 1' ERR
 
+date_alias() {
+  if [[ "$(date --version | grep -i -c gnu)" -ge 1 ]];then 
+    date "$@"
+  else
+    gdate $@
+  fi
+}
+export -f date_alias
+
 while getopts "a:h?" options; do case $options in
   a) a="$OPTARG" ;;
   h|?) help; exit ;;
@@ -38,7 +47,7 @@ elif [[ "$1" == "off" ]];then shift
   
   raw_log_data="$( $0 raw_off | grep "${system_log_filter}" )"
   raw_timestamps="$( awk '{print $1,$2,$3}' <<<"${raw_log_data}" \
-    | parallel 'gdate -d "$(echo {})" "+%F %T"' \
+    | parallel 'date_alias -d "$(echo {})" "+%F %T"' \
     | sort
   )"
   raw_json_data="$(jq -R 'split(" ")' <<<"${raw_timestamps}" \
@@ -53,7 +62,7 @@ elif [[ "$1" == "on" ]];then shift
   : ${system_log_filter:="AuthenticationAllowed"}
   raw_log_data="$( $0 raw_on | grep "${system_log_filter}" )"
   raw_timestamps="$( awk '{print $1,$2,$3}' <<<"${raw_log_data}" \
-    | parallel 'gdate -d "$(echo {})" "+%F %T"' \
+    | parallel 'date_alias -d "$(echo {})" "+%F %T"' \
     | sort
   )"
   raw_json_data="$(jq -R 'split(" ")' <<<"${raw_timestamps}" \
@@ -116,10 +125,10 @@ elif [[ "$1" == "add_total" ]];then shift
 
 elif [[ "$1" == "dates_of_this_week" ]];then shift
   : ${week:="- 0"}
-  : ${day:="$(gdate -d "${week} week" +%F)"}
+  : ${day:="$(date_alias -d "${week} week" +%F)"}
 
   seq 0 4 \
-    | parallel "gdate -d \"${day} - \$(( \$(gdate +%u) - 1)) days + {} days\" +%F" \
+    | parallel "date_alias -d \"${day} - \$(( \$(date_alias +%u) - 1)) days + {} days\" +%F" \
     | sort \
     | jq -R '.' \
     | jq -c -s '.'
