@@ -192,9 +192,9 @@ elif [[ "$1" == "week_average" ]];then shift
     cat <(week="$i" $0 this_week)
   done  \
     | jq \
-      -s -c \
+      -s \
       --arg count "${#array[@]}" \
-      'map(select(has("total"))|.total)|add|./=($count|tonumber)|.*=100|floor|./=100'
+      'map(select(has("total"))|.total)|{totals:(.),average:(add|./=($count|tonumber)|.*=100|floor|./=100)}'
 
 fi
 
