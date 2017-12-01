@@ -176,11 +176,17 @@ elif [[ "$1" == "update" ]];then shift
     | sponge ${working_time_file}
 
 elif [[ "$1" == "last_weeks" ]];then shift
-  cat \
-    <(week="-2" $0 this_week) \
-    <(week="-1" $0 this_week) \
-    <(week="-0" $0 this_week) \
-    | jq -s -c 'map(select(has("total"))|.total)|add|./=3|.*=100|floor|./=100'
+  : ${weeks:="${1:-"-1,-0"}"}
+  read -r -a array <<<"$(echo -n "$weeks" | tr ',' ' ')"
+
+  for i in "${array[@]}"; do
+    cat <(week="$i" $0 this_week)
+  done  \
+    | jq \
+      -s \
+      -c \
+      --arg count "${#array[@]}" \
+      '.+=[{average:(.|map(select(has("total"))|.total)|add|./=($count|tonumber)|.*=100|floor|./=100)}]|.[]'
 
 elif [[ "$1" == "week_average" ]];then shift
   # readarray -t array <<<"$(printf "$1" | tr ',' '\n')"
