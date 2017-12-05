@@ -133,9 +133,10 @@ elif [[ "$1" == "dates_of_this_week" ]];then shift
     | jq -R '.' \
     | jq -c -s '.'
 
-elif [[ "$1" == "add_next_week" ]];then shift
+elif [[ "$1" == "add_week" ]];then shift
+  : ${week:="+ 1"}
   new_entries_with_date_keys="$( 
-    week="+ 1" $0 dates_of_this_week \
+    $0 dates_of_this_week \
       | jq -c 'map({date:.,start:"09:00:00",stop:"16:00:00"})[]' \
       | jq -s '.' \
       | jq 'map({"\(.date)":.})|add'
@@ -144,7 +145,7 @@ elif [[ "$1" == "add_next_week" ]];then shift
     | jq -s '.' \
     | jq 'map({"\(.date)":.})|add' \
     | jq -c --argjson new_entries "${new_entries_with_date_keys}" \
-      '. + $new_entries |flatten |sort_by(.date)|.[]' \
+      '$new_entries + . |flatten |sort_by(.date)|.[]' \
     | sponge ${working_time_file}
 
 elif [[ "$1" == "entries_of_this_week" ]];then shift
