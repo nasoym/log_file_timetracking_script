@@ -99,13 +99,13 @@ elif [[ "$1" == "calc_duration" ]];then shift
 map(\
   .duration=(\
     (\
-      (.stop|split(\":\")[0]|tonumber)\
-      + (.stop|split(\":\")[1]|tonumber/60)\
+      ((.m_stop//.stop)|split(\":\")[0]|tonumber)\
+      + ((.m_stop//.stop)|split(\":\")[1]|tonumber/60)\
     )\
     - \
     (\
-      (.start|split(\":\")[0]|tonumber)\
-      + (.start|split(\":\")[1]|tonumber/60)\
+      ((.m_start//.start)|split(\":\")[0]|tonumber)\
+      + ((.m_start//.start)|split(\":\")[1]|tonumber/60)\
     )\
   )\
   |.duration=(.duration*100|floor|./100)
@@ -173,7 +173,7 @@ elif [[ "$1" == "update" ]];then shift
     | jq -s '.' \
     | jq 'map({"\(.date)":.})|add' \
     | jq -c --argjson new_entries "${new_entries_with_date_keys}" \
-      '. + $new_entries |flatten |sort_by(.date)|.[]' \
+      '. * $new_entries |flatten |sort_by(.date)|.[]' \
     | sponge ${working_time_file}
 
 elif [[ "$1" == "last_weeks" ]];then shift
