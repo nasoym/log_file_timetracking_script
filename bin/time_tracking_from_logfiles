@@ -117,7 +117,7 @@ elif [[ "$1" == "add_total" ]];then shift
   jq -s -c \
     --argjson work_time_per_week "${work_time_per_week}" \
     "\
-    .+=[{total:(.|map(.duration)|add|.*100|floor|./100)}\
+    .+=[{total:(.|map(.duration)|add//0|.*100|floor|./100)}\
     |.overtime=(.total-\$work_time_per_week|.*100|floor|./100)\
     ]\
   |.[]\
