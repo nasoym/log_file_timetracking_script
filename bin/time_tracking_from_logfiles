@@ -113,7 +113,7 @@ map(\
 |.[]\
     "
 elif [[ "$1" == "add_total" ]];then shift
-  jq -s -c " .+ = [{total:(.|map(.duration)|add//0|.*100|floor|./100)}] |.[] "
+  jq -s -c " . += [{total:(.|map(.duration)|add//0|.*100|floor|./100)}] |.[] "
 
 elif [[ "$1" == "dates_of_this_week" ]];then shift
   : ${week:="- 0"}
