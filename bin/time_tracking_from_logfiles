@@ -24,7 +24,7 @@ if [[ "$#" -eq 0 ]];then
 
 elif [[ "$1" == "raw_on" ]];then shift
   raw_log_data="$( find /var/log -maxdepth 1 -type f -name "accountpolicy.log.[0-9]*.gz" 2>/dev/null \
-    | sort | sed '$d' \
+    | sort \
     | parallel -r 'gzip -dc {}' \
     | tr '\0' '\n' \
     ;  cat /var/log/accountpolicy.log \
