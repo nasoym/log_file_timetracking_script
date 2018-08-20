@@ -107,6 +107,11 @@ map(\
       ((.m_start//.start)|split(\":\")[0]|tonumber)\
       + ((.m_start//.start)|split(\":\")[1]|tonumber/60)\
     )\
+    - \
+    (\
+      ((.break//\"00:00\")|split(\":\")[0]|tonumber)\
+      + ((.break//\"00:00\")|split(\":\")[1]|tonumber/60)\
+    )\
   )\
   |.duration=(.duration*100|floor|./100)
 )\
