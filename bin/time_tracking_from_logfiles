@@ -134,7 +134,7 @@ elif [[ "$1" == "add_week" ]];then shift
   : ${week:="+ 1"}
   new_entries_with_date_keys="$( 
     $0 dates_of_this_week \
-      | jq -c 'map({date:.,start:"08:45:00",stop:"16:00:00",break:"00:15"})[]' \
+      | jq -c 'map({date:.,start:"08:45:00",stop:"16:00:00",break:"00:10"})[]' \
       | jq -s '.' \
       | jq 'map({"\(.date)":.})|add'
     )"
