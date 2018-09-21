@@ -23,11 +23,11 @@ if [[ "$#" -eq 0 ]];then
   :
 
 elif [[ "$1" == "raw_on" ]];then shift
-  raw_log_data="$( find /var/log -maxdepth 1 -type f -name "accountpolicy.log.[0-9]*.gz" 2>/dev/null \
+  raw_log_data="$( find /var/log -maxdepth 1 -type f -name "system.log.[0-9]*.gz" 2>/dev/null \
     | sort \
     | parallel -r 'gzip -dc {}' \
     | tr '\0' '\n' \
-    ;  cat /var/log/accountpolicy.log \
+    ;  cat /var/log/system.log \
   )"
   echo "$raw_log_data"
 
@@ -59,8 +59,8 @@ elif [[ "$1" == "off" ]];then shift
   jq -c 'map(.time|=(map(.type="stop")))[]' <<<"${raw_json_data}"
 
 elif [[ "$1" == "on" ]];then shift
-  : ${system_log_filter:="AuthenticationAllowed"}
-  raw_log_data="$( $0 raw_on | grep "${system_log_filter}" )"
+  : ${system_log_filter:="login"}
+  raw_log_data="$( $0 raw_on | grep -w "${system_log_filter}" )"
   raw_timestamps="$( awk '{print $1,$2,$3}' <<<"${raw_log_data}" \
     | parallel 'date_alias -d "$(echo {})" "+%F %T"' \
     | sort
