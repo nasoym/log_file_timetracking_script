@@ -1,7 +1,15 @@
 #!/usr/bin/env bash
-
-set -eufo pipefail
-trap 'echo "$0: line ${LINENO}: exiting because of error";exit 1' ERR
+set -o errexit  # abort when any commands exits with error
+set -o pipefail # abort when any command in a pipe exits with error
+set -o nounset  # abort when any unset variable is used
+set -o noglob # prevent bash from expanding glob
+set -o errtrace # inherits trap on ERR in function and subshell
+trap 'echo status:$? line:$LINENO line:$BASH_LINENO command:"$BASH_COMMAND" functions:$(printf " %s" ${FUNCNAME[@]:-})' ERR
+if [[ "${trace:=0}" -eq 1 ]];then
+  PS4='${LINENO}: '
+  set -x
+  export trace
+fi
 
 date_alias() {
   if [[ "$(date --version | grep -i -c gnu)" -ge 1 ]];then 
@@ -21,6 +29,15 @@ esac; done; shift $((OPTIND - 1))
 
 if [[ "$#" -eq 0 ]];then
   :
+  ${0} help
+
+elif [[ "$1" == "help" ]];then shift
+  cat ${0} \
+    | grep -A5 '^elif' \
+    | grep -E '(^elif|shift$)' \
+    | sed -e 's/^elif *\[\{1,\} *"\$1" *=\{1,\} *"\([^"]*\)" *\]\{1,\} *; *then *shift *\(#\{0,\}\) *\(.*\)$/\1 \2 \3/g' \
+    | sed -e 's/^\( *\)\([^;]*\); *shift$/\1\2/g' \
+    || true
 
 elif [[ "$1" == "raw_on" ]];then shift
   raw_log_data="$( find /var/log -maxdepth 1 -type f -name "system.log.[0-9]*.gz" 2>/dev/null \
@@ -59,6 +76,16 @@ elif [[ "$1" == "off" ]];then shift
   jq -c 'map(.time|=(map(.type="stop")))[]' <<<"${raw_json_data}"
 
 elif [[ "$1" == "on" ]];then shift
+
+# 2018-09-24 08:25:30.806813+0200  localhost loginwindow[102]: (Security) [com.apple.securityd:KCLogin] StorageManager::login: loginDLDbIdentifier is /Users/.../Library/Keychains/login.keychain
+# 2018-09-24 08:25:30.807437+0200  localhost loginwindow[102]: (Security) [com.apple.securityd:KCLogin] Attempting to unlock login keychain "/Users/.../Library/Keychains/login.keychain-db"
+# 2018-09-24 08:26:04.814138+0200  localhost authd[122]: [com.apple.Authorization:authd] UID 501 authenticated as user ... (UID 501) for right 'com.apple.trust-settings.user'
+# 2018-09-24 08:26:04.814152+0200  localhost authd[122]: [com.apple.Authorization:authd] engine: - validating credential ... (501) for authenticate-session-owner
+# 2018-09-24 08:26:04.814154+0200  localhost authd[122]: [com.apple.Authorization:authd] engine: - credential 501 is session owner (does satisfy rule)
+# 2018-09-24 08:26:04.814170+0200  localhost authd[122]: [com.apple.Authorization:authd] Succeeded authorizing right 'com.apple.trust-settings.user' by client '/usr/sbin/ocspd' [66774] for authorization created by '/Applications/Mail.app' [3763] (3,0)
+# 2018-09-24 08:26:04.814616+0200  localhost ocspd[66774]: (libsystem_info.dylib) Created Activity ID: 0x1a1cfd, Description: Membership API: translate identifier
+# 2018-09-24 08:25:19.609625+0200  localhost loginwindow[102]: (BezelServices) [com.apple.BezelServices:loginwindow] notification: User Is ACTIVE.  Unsuppressing keyboard brightness
+  
   : ${system_log_filter:="login"}
   raw_log_data="$( $0 raw_on | grep -w "${system_log_filter}" )"
   raw_timestamps="$( awk '{print $1,$2,$3}' <<<"${raw_log_data}" \
@@ -71,7 +98,6 @@ elif [[ "$1" == "on" ]];then shift
   # jq -c 'map(.time=(.time[0].time)|.type="start")[]' <<<"${raw_json_data}"
   jq -c 'map(.time|=(map(.type="start")))[]' <<<"${raw_json_data}"
 
-  
 elif [[ "$1" == "show_joined" ]];then shift
   : ${default_stop_time:="16:00:00"}
   ( $0 on ; $0 off ) | jq -s -c "\
@@ -83,16 +109,11 @@ group_by(.date)\
 |map(.start=(.events|map(select(.type==\"start\"))|first|.time))\
 |map(.stop=(.events|map(select(.type==\"stop\"))|last|.time//\"${default_stop_time}\"))\
 |map(del(.events))\
-|map(if(.start==null) then empty else . end)\
+|map(if(.stop==null) then del(.stop) else . end)\
+|map(if(.start==null) then del(.start) else . end)\
 |sort_by(.date)\
 |.[]\
     "
-# |map(\
-#   (.events|map(.type==\"start\")|rindex(true)) as \$last_start \
-#   |.stop=(.events[\$last_start:]|\
-#     map(select(.type==\"stop\"))|first|.time//\"16:00:00\" \
-#   )\
-# )\
 
 elif [[ "$1" == "calc_duration" ]];then shift
   jq -s -c "\
