@@ -85,18 +85,32 @@ elif [[ "$1" == "on" ]];then shift
 # 2018-09-24 08:26:04.814170+0200  localhost authd[122]: [com.apple.Authorization:authd] Succeeded authorizing right 'com.apple.trust-settings.user' by client '/usr/sbin/ocspd' [66774] for authorization created by '/Applications/Mail.app' [3763] (3,0)
 # 2018-09-24 08:26:04.814616+0200  localhost ocspd[66774]: (libsystem_info.dylib) Created Activity ID: 0x1a1cfd, Description: Membership API: translate identifier
 # 2018-09-24 08:25:19.609625+0200  localhost loginwindow[102]: (BezelServices) [com.apple.BezelServices:loginwindow] notification: User Is ACTIVE.  Unsuppressing keyboard brightness
+
+# 2018-09-26 08:32:19.892786+0200  localhost loginwindow[102]: (Sharing) [com.apple.sharing:AutoUnlock] Dynamic store enabled state {
+# 2018-09-26 08:32:19.893225+0200  localhost loginwindow[102]: (LocalAuthentication) [com.apple.LocalAuthentication:LAContext] -[LAContext initWithExternalizedContext:] 0 on <private>
+# 2018-09-26 08:32:19.893580+0200  localhost loginwindow[102]: (LocalAuthentication) [com.apple.LocalAuthentication:LAClient] -[LAClient evaluatePolicy:options:uiDelegate:reply:] 1, {
+# 2018-09-26 08:32:19.895560+0200  localhost loginwindow[102]: (LocalAuthentication) [com.apple.LocalAuthentication:LAClient] -[LAClient evaluatePolicy:options:uiDelegate:reply:]_block_invoke -> (null), Error Domain=com.apple.LocalAuthentication Code=-6 "Biometry is not available on this device." UserInfo={BiometryType=0, NSLocalizedDescription=Biometry is not available on this device.} on <private>
+# 2018-09-26 08:32:19.895602+0200  localhost loginwindow[102]: (LocalAuthentication) [com.apple.LocalAuthentication:LAContext] -[LAContext dealloc]  on <private>
+
   
-  : ${system_log_filter:="login"}
-  raw_log_data="$( $0 raw_on | grep -w "${system_log_filter}" )"
-  raw_timestamps="$( awk '{print $1,$2,$3}' <<<"${raw_log_data}" \
-    | parallel 'date_alias -d "$(echo {})" "+%F %T"' \
-    | sort
-  )"
-  raw_json_data="$(jq -R 'split(" ")' <<<"${raw_timestamps}" \
-    | jq -s 'map({date:.[0],time:.[1]})|group_by(.date)|map({date:(.[0].date),time:(.|sort_by(.time))})'
-  )"
-  # jq -c 'map(.time=(.time[0].time)|.type="start")[]' <<<"${raw_json_data}"
-  jq -c 'map(.time|=(map(.type="start")))[]' <<<"${raw_json_data}"
+  # : ${system_log_filter:="login"}
+  # raw_log_data="$( $0 raw_on | grep -w "${system_log_filter}" )"
+  # raw_timestamps="$( awk '{print $1,$2,$3}' <<<"${raw_log_data}" \
+  #   | parallel 'date_alias -d "$(echo {})" "+%F %T"' \
+  #   | sort
+  # )"
+  # raw_json_data="$(jq -R 'split(" ")' <<<"${raw_timestamps}" \
+  #   | jq -s 'map({date:.[0],time:.[1]})|group_by(.date)|map({date:(.[0].date),time:(.|sort_by(.time))})'
+  # )"
+  # # jq -c 'map(.time=(.time[0].time)|.type="start")[]' <<<"${raw_json_data}"
+  # jq -c 'map(.time|=(map(.type="start")))[]' <<<"${raw_json_data}"
+
+
+  log show \
+    --predicate 'subsystem == "com.apple.sharing" && category == "AutoUnlock" && eventMessage contains "Dynamic store enabled state"' \
+    --last 5d \
+    --style json \
+  | jq -c 'map({date:(.timestamp|gsub(" .*";"")),time:(.timestamp|gsub("[0-9-]* ";"")|gsub("\\..*";"")),type:"start"})|group_by(.date)|map({date:(.[0].date),time:(.)})[]'
 
 elif [[ "$1" == "show_joined" ]];then shift
   : ${default_stop_time:="16:00:00"}
