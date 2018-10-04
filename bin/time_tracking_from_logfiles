@@ -148,7 +148,7 @@ map(\
       + ((.break//\"00:00\")|split(\":\")[1]|tonumber/60)\
     )\
   )\
-  |.duration=(.duration*100|floor|./100)
+  |.duration=(.duration*10|floor|./10)
 )\
 |.[]\
     "
@@ -169,7 +169,7 @@ elif [[ "$1" == "add_week" ]];then shift
   : ${week:="+ 1"}
   new_entries_with_date_keys="$( 
     $0 dates_of_this_week \
-      | jq -c 'map({date:.,start:"08:45:00",stop:"16:00:00",break:"00:10"})[]' \
+      | jq -c 'map({date:.,start:"08:49:00",stop:"16:10:00",break:"00:20"})[]' \
       | jq -s '.' \
       | jq 'map({"\(.date)":.})|add'
     )"
