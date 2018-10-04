@@ -113,7 +113,7 @@ elif [[ "$1" == "on" ]];then shift
   | jq -c 'map({date:(.timestamp|gsub(" .*";"")),time:(.timestamp|gsub("[0-9-]* ";"")|gsub("\\..*";"")),type:"start"})|group_by(.date)|map({date:(.[0].date),time:(.)})[]'
 
 elif [[ "$1" == "show_joined" ]];then shift
-  : ${default_stop_time:="16:00:00"}
+  : ${default_stop_time:="16:10:00"}
   ( $0 on ; $0 off ) | jq -s -c "\
 group_by(.date)\
 |map({\
