@@ -39,14 +39,6 @@ elif [[ "$1" == "help" ]];then shift
     | sed -e 's/^\( *\)\([^;]*\); *shift$/\1\2/g' \
     || true
 
-elif [[ "$1" == "raw_on" ]];then shift
-  raw_log_data="$( find /var/log -maxdepth 1 -type f -name "system.log.[0-9]*.gz" 2>/dev/null \
-    | sort \
-    | parallel -r 'gzip -dc {}' \
-    | tr '\0' '\n' \
-    ;  cat /var/log/system.log \
-  )"
-  echo "$raw_log_data"
 
 elif [[ "$1" == "raw_off" ]];then shift
   raw_log_data="$( find /private/var/log -maxdepth 1 -type f -name "system.log.[0-9]*.gz" \
@@ -74,6 +66,15 @@ elif [[ "$1" == "off" ]];then shift
   # jq -c '.' <<<"${raw_json_data}"
   # jq 'map(.type="stop")[]' <<<"${raw_json_data}"
   jq -c 'map(.time|=(map(.type="stop")))[]' <<<"${raw_json_data}"
+
+elif [[ "$1" == "raw_on" ]];then shift
+  raw_log_data="$( find /var/log -maxdepth 1 -type f -name "system.log.[0-9]*.gz" 2>/dev/null \
+    | sort \
+    | parallel -r 'gzip -dc {}' \
+    | tr '\0' '\n' \
+    ;  cat /var/log/system.log \
+  )"
+  echo "$raw_log_data"
 
 elif [[ "$1" == "on" ]];then shift
 
@@ -108,9 +109,10 @@ elif [[ "$1" == "on" ]];then shift
 
   log show \
     --predicate 'subsystem == "com.apple.sharing" && category == "AutoUnlock" && eventMessage contains "Dynamic store enabled state"' \
-    --last 5d \
+    --last 6d \
     --style json \
-  | jq -c 'map({date:(.timestamp|gsub(" .*";"")),time:(.timestamp|gsub("[0-9-]* ";"")|gsub("\\..*";"")),type:"start"})|group_by(.date)|map({date:(.[0].date),time:(.)})[]'
+  | jq -c 'map({date:(.timestamp|gsub(" .*";"")),time:(.timestamp|gsub("[0-9-]* ";"")|gsub("\\..*";"")),type:"start"})|group_by(.date)|map({date:(.[0].date),time:(.)})[]' \
+  | jq -c -s '.|sort_by(.date)|.[1:]|.[]'
 
 elif [[ "$1" == "show_joined" ]];then shift
   : ${default_stop_time:="16:10:00"}
