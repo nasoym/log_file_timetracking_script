@@ -12,10 +12,10 @@ if [[ "${trace:=0}" -eq 1 ]];then
 fi
 
 date_alias() {
-  if [[ "$(date --version | grep -i -c gnu)" -ge 1 ]];then 
-    date "$@"
+  if which gdate >/dev/null ; then
+    gdate "$@"
   else
-    gdate $@
+    date "$@"
   fi
 }
 export -f date_alias
