@@ -171,7 +171,7 @@ elif [[ "$1" == "add_week" ]];then shift
   : ${week:="+ 1"}
   new_entries_with_date_keys="$( 
     $0 dates_of_this_week \
-      | jq -c 'map({date:.,start:"08:55:00",stop:"16:25:00",break:"00:30"})[]' \
+      | jq -c 'map({date:.,start:"09:00:00",stop:"16:10:00",break:"00:10"})[]' \
       | jq -s '.' \
       | jq 'map({"\(.date)":.})|add'
     )"
@@ -236,6 +236,9 @@ elif [[ "$1" == "week_average" ]];then shift
       -s \
       --arg count "${#array[@]}" \
       'map(select(has("total"))|.total)|{totals:(.),average:(add|./=($count|tonumber)|.*=100|floor|./=100)}'
+
+elif [[ "$1" == "edit" ]];then shift
+  vim ${working_time_file}
 
 fi
 
