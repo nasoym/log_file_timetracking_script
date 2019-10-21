@@ -132,28 +132,21 @@ group_by(.date)\
     "
 
 elif [[ "$1" == "calc_duration" ]];then shift
-  jq -s -c "\
-map(\
-  .duration=(\
-    (\
-      ((.m_stop//.stop)|split(\":\")[0]|tonumber)\
-      + ((.m_stop//.stop)|split(\":\")[1]|tonumber/60)\
-    )\
-    - \
-    (\
-      ((.m_start//.start)|split(\":\")[0]|tonumber)\
-      + ((.m_start//.start)|split(\":\")[1]|tonumber/60)\
-    )\
-    - \
-    (\
-      ((.break//\"00:00\")|split(\":\")[0]|tonumber)\
-      + ((.break//\"00:00\")|split(\":\")[1]|tonumber/60)\
-    )\
-  )\
-  |.duration=(.duration*10|floor|./10)
-)\
-|.[]\
-    "
+  jq -s -c '
+    map(
+      .duration=(
+        ( ((.m_stop//.stop)|split(":")[0]|tonumber) + ((.m_stop//.stop)|split(":")[1]|tonumber/60) )
+        - 
+        ( ((.m_start//.start)|split(":")[0]|tonumber) + ((.m_start//.start)|split(":")[1]|tonumber/60) )
+        - 
+        ( ((.break//"00:00")|split(":")[0]|tonumber) + ((.break//"00:00")|split(":")[1]|tonumber/60) )
+      )
+      |.duration=(.duration*10|floor|./10)
+      | if (.duration < 2 ) then .duration=7 else .duration=.duration end
+    )
+    |.[]
+    '
+
 elif [[ "$1" == "add_total" ]];then shift
   jq -s -c " . += [{total:(.|map(.duration)|add//0|.*100|floor|./100)}] |.[] "
 
