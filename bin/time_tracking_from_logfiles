@@ -140,6 +140,8 @@ elif [[ "$1" == "calc_duration" ]];then shift
         ( ((.m_start//.start)|split(":")[0]|tonumber) + ((.m_start//.start)|split(":")[1]|tonumber/60) )
         - 
         ( ((.break//"00:00")|split(":")[0]|tonumber) + ((.break//"00:00")|split(":")[1]|tonumber/60) )
+        + 
+        ( ((.additional//"00:00")|split(":")[0]|tonumber) + ((.additional//"00:00")|split(":")[1]|tonumber/60) )
       )
       |.duration=(.duration*10|floor|./10)
       | if (.duration < 2 ) then .duration=7 else .duration=.duration end
