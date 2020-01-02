@@ -107,9 +107,10 @@ elif [[ "$1" == "on" ]];then shift
   # jq -c 'map(.time|=(map(.type="start")))[]' <<<"${raw_json_data}"
 
 
+  : ${on_days:="6d"}
   log show \
     --predicate 'subsystem == "com.apple.sharing" && category == "AutoUnlock" && eventMessage contains "Dynamic store enabled state"' \
-    --last 6d \
+    --last ${on_days} \
     --style json \
   | jq -c 'map({date:(.timestamp|gsub(" .*";"")),time:(.timestamp|gsub("[0-9-]* ";"")|gsub("\\..*";"")),type:"start"})|group_by(.date)|map({date:(.[0].date),time:(.)})[]' \
   | jq -c -s '.|sort_by(.date)|.[1:]|.[]'
