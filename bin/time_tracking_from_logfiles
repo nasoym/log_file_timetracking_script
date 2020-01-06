@@ -217,7 +217,27 @@ elif [[ "$1" == "last_weeks" ]];then shift
       -s \
       -c \
       --arg count "${#array[@]}" \
-      '.+=[{average:(.|map(select(has("total") and (.total!=0))|.total)|length as $entry_count|add|./=($entry_count)|.*=100|floor|./=100)}]|.[]'
+      '.+=[
+          {average:(
+            .|
+            map(select(has("total") and (.total!=0))|.total) |
+            length as $entry_count|
+            add|
+            ./=($entry_count)|
+            .*=100|
+            floor|
+            ./=100)
+          },
+          {diff:(
+            map(select(has("total") and (.total!=0))|.total) |
+            length as $entry_count|
+            add - ($entry_count * 35 )|
+            .*=100|
+            floor|
+            ./=100
+            )}
+          ]|
+        .[]'
 
 elif [[ "$1" == "week_average" ]];then shift
   # readarray -t array <<<"$(printf "$1" | tr ',' '\n')"
