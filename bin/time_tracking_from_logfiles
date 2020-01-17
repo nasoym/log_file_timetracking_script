@@ -228,7 +228,7 @@ elif [[ "$1" == "last_weeks" ]];then shift
             floor|
             ./=100)
           },
-          {diff:(
+          {overtime:(
             map(select(has("total") and (.total!=0))|.total) |
             length as $entry_count|
             add - ($entry_count * 35 )|
