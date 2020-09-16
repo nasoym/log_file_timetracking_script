@@ -77,10 +77,10 @@ elif [[ "$1" == "get_new_events" ]];then shift
       jq -sc '
         map(
           .time|map({
-            time:(.date +"T" + .time),
             date,
+            time,
             epoche:(.date +"T" + .time|strptime("%FT%T")|mktime|strftime("%s")|tonumber),
-            hour:(.date +"T" + .time|strptime("%FT%T")|mktime|strftime("%H")|tonumber),
+            hour:(.time |gsub(":[0-9]{2}:[0-9]{2}$";"")|tonumber),
             type
           })
         )|
@@ -92,176 +92,210 @@ elif [[ "$1" == "get_new_events" ]];then shift
   map({
     hour:(map(select(.type=="start")|.hour)|first),
     date:(map(select(.type=="start")|.date)|first),
-    time:(map(select(.type=="start")|.time)|first),
+    time_start:(map(select(.type=="start")|.time)|first),
+    time_stop:(map(select(.type=="stop")|.time)|first),
     start:(map(select(.type=="start")|.epoche)|first),
     stop:(map(select(.type=="stop")|.epoche)|first)
   })|
   map({
     date,
-    time,
+    time:(.date+"T"+.time_start),
+    time_start,
+    time_stop,
+    hour,
     type:(if (.hour>18) then "private" else "work" end ),
-    duration:((.stop-.start)/60/60|.*=100|floor|./=100)
+    duration_hours:((.stop-.start)/60/60|.*=10|floor|./=10),
+    duration_minutes:((.stop-.start)/60|floor),
   })' 
 
+elif [[ "$1" == "show_raw_events" ]];then shift
+  cat ${time_event_file}
+
+elif [[ "$1" == "edit_events" ]];then shift
+  vim ${time_event_file}
+
 elif [[ "$1" == "update_events" ]];then shift
-  cat ${time_event_file} |
-    jq -s '.' |
-    jq -c --argjson new_entries "$(${0} get_new_events)" \
-      '. + $new_entries | unique_by(.time)|flatten |sort_by(.time)|.[]' |
-    sponge ${time_event_file}
+  ${0} show_raw_events |
+  jq -sc \
+    --argjson new_entries "$(${0} get_new_events)" \
+    '
+      . + $new_entries | 
+      unique_by(.time) |
+      flatten |
+      sort_by(.time) |
+      .[]
+    ' |
+  sponge ${time_event_file}
 
 elif [[ "$1" == "show_events" ]];then shift
-  cat ${time_event_file} |
+  ${0} show_raw_events |
   jq -sc '
     group_by(.date)|
     map({
       date:(first|.date),
-      work_time:(.|map(select(.type=="work")|.duration)|add|.*=100|floor|./=100)
+      work:(
+        map(
+          select(.type=="work")|
+          if (.duration_hours!=null) then .duration_hours
+          elif (.duration_minutes!=null) then .duration_minutes / 60
+          else 0 end
+        )|
+        add//0|.*=10|floor|./=10
+      ),
+      private:(
+        map(
+          select(.type=="private")|
+          if (.duration_hours!=null) then .duration_hours
+          elif (.duration_minutes!=null) then .duration_minutes / 60
+          else 0 end
+        )|
+        add//0|.*=10|floor|./=10
+      )
     })|
     sort_by(.date)|
     .[]
     '
 
-elif [[ "$1" == "show_joined" ]];then shift
-  : ${default_stop_time:="16:10:00"}
-  ( $0 on ; $0 off ) | jq -s -c "\
-group_by(.date)\
-|map({\
-  date:.[0].date,\
-  events:(.|map(.time)|flatten|map(del(.date))|sort_by(.time))\
-})\
-|map(.start=(.events|map(select(.type==\"start\"))|first|.time))\
-|map(.stop=(.events|map(select(.type==\"stop\"))|last|.time//\"${default_stop_time}\"))\
-|map(del(.events))\
-|map(if(.stop==null) then del(.stop) else . end)\
-|map(if(.start==null) then del(.start) else . end)\
-|sort_by(.date)\
-|.[]\
-    "
-
-elif [[ "$1" == "calc_duration" ]];then shift
-  jq -s -c '
-    map(
-      .duration=(
-        ( ((.m_stop//.stop)|split(":")[0]|tonumber) + ((.m_stop//.stop)|split(":")[1]|tonumber/60) )
-        - 
-        ( ((.m_start//.start)|split(":")[0]|tonumber) + ((.m_start//.start)|split(":")[1]|tonumber/60) )
-        - 
-        ( ((.break//"00:00")|split(":")[0]|tonumber) + ((.break//"00:00")|split(":")[1]|tonumber/60) )
-        + 
-        ( ((.additional//"00:00")|split(":")[0]|tonumber) + ((.additional//"00:00")|split(":")[1]|tonumber/60) )
-      )
-      |.duration=(.duration*10|floor|./10)
-      | if (.duration < 2 ) then .duration=7 else .duration=.duration end
-    )
-    |.[]
-    '
-
-elif [[ "$1" == "add_total" ]];then shift
-  jq -s -c " . += [{total:(.|map(.duration)|add//0|.*100|floor|./100)}] |.[] "
-
-elif [[ "$1" == "dates_of_this_week" ]];then shift
-  : ${week:="- 0"}
-  : ${day:="$(date_alias -d "${week} week" +%F)"}
-
-  seq 0 4 \
-    | parallel "date_alias -d \"${day} - \$(( \$(date_alias +%u) - 1)) days + {} days\" +%F" \
-    | sort \
-    | jq -R '.' \
-    | jq -c -s '.'
-
-elif [[ "$1" == "add_week" ]];then shift
-  : ${week:="+ 1"}
-  new_entries_with_date_keys="$( 
-    $0 dates_of_this_week \
-      | jq -c 'map({date:.,start:"09:00:00",stop:"16:10:00",break:"00:10"})[]' \
-      | jq -s '.' \
-      | jq 'map({"\(.date)":.})|add'
-    )"
-  cat ${working_time_file} \
-    | jq -s '.' \
-    | jq 'map({"\(.date)":.})|add' \
-    | jq -c --argjson new_entries "${new_entries_with_date_keys}" \
-      '$new_entries + . |flatten |sort_by(.date)|.[]' \
-    | sponge ${working_time_file}
-
-elif [[ "$1" == "entries_of_this_week" ]];then shift
-  cat ${working_time_file} \
-    | jq \
-      -s -c \
-      --argjson this_week "$($0 dates_of_this_week)" \
-      'map(select([.date]|inside($this_week)))[]'
-
-elif [[ "$1" == "this_week" ]];then shift
-  $0 entries_of_this_week \
-    | $0 calc_duration \
-    | $0 add_total
-
-elif [[ "$1" == "duration_from_logs" ]];then shift
-  $0 show_joined \
-    | $0 calc_duration
-
-elif [[ "$1" == "update" ]];then shift
-  new_entries_with_date_keys="$( $0 show_joined \
-      | jq -s '.' \
-      | jq 'map({"\(.date)":.})|add'
-    )"
-  cat ${working_time_file} \
-    | jq -s '.' \
-    | jq 'map({"\(.date)":.})|add' \
-    | jq -c --argjson new_entries "${new_entries_with_date_keys}" \
-      '. * $new_entries |flatten |sort_by(.date)|.[]' \
-    | sponge ${working_time_file}
-
-elif [[ "$1" == "last_weeks" ]];then shift
-  : ${weeks:="${1:-"-1,-0"}"}
-  read -r -a array <<<"$(echo -n "$weeks" | tr ',' ' ')"
-
-  for i in "${array[@]}"; do
-    cat <(week="$i" $0 this_week)
-  done  \
-    | jq \
-      -s \
-      -c \
-      --arg count "${#array[@]}" \
-      '.+=[
-          {average:(
-            .|
-            map(select(has("total") and (.total!=0))|.total) |
-            length as $entry_count|
-            add|
-            ./=($entry_count)|
-            .*=100|
-            floor|
-            ./=100)
-          },
-          {overtime:(
-            map(select(has("total") and (.total!=0))|.total) |
-            length as $entry_count|
-            add - ($entry_count * 35 )|
-            .*=100|
-            floor|
-            ./=100
-            )}
-          ]|
-        .[]'
-
-elif [[ "$1" == "week_average" ]];then shift
-  # readarray -t array <<<"$(printf "$1" | tr ',' '\n')"
-  # declare -p array
-  : ${weeks:="${1:-"-1,-0"}"}
-  read -r -a array <<<"$(echo -n "$weeks" | tr ',' ' ')"
-
-  for i in "${array[@]}"; do
-    cat <(week="$i" $0 this_week)
-  done  \
-    | jq \
-      -s \
-      --arg count "${#array[@]}" \
-      'map(select(has("total"))|.total)|{totals:(.),average:(add|./=($count|tonumber)|.*=100|floor|./=100)}'
-
-elif [[ "$1" == "edit" ]];then shift
-  vim ${working_time_file}
-
+# elif [[ "$1" == "show_joined" ]];then shift
+#   : ${default_stop_time:="16:10:00"}
+#   ( $0 on ; $0 off ) | jq -s -c "\
+# group_by(.date)\
+# |map({\
+#   date:.[0].date,\
+#   events:(.|map(.time)|flatten|map(del(.date))|sort_by(.time))\
+# })\
+# |map(.start=(.events|map(select(.type==\"start\"))|first|.time))\
+# |map(.stop=(.events|map(select(.type==\"stop\"))|last|.time//\"${default_stop_time}\"))\
+# |map(del(.events))\
+# |map(if(.stop==null) then del(.stop) else . end)\
+# |map(if(.start==null) then del(.start) else . end)\
+# |sort_by(.date)\
+# |.[]\
+#     "
+#
+# elif [[ "$1" == "calc_duration" ]];then shift
+#   jq -s -c '
+#     map(
+#       .duration=(
+#         ( ((.m_stop//.stop)|split(":")[0]|tonumber) + ((.m_stop//.stop)|split(":")[1]|tonumber/60) )
+#         - 
+#         ( ((.m_start//.start)|split(":")[0]|tonumber) + ((.m_start//.start)|split(":")[1]|tonumber/60) )
+#         - 
+#         ( ((.break//"00:00")|split(":")[0]|tonumber) + ((.break//"00:00")|split(":")[1]|tonumber/60) )
+#         + 
+#         ( ((.additional//"00:00")|split(":")[0]|tonumber) + ((.additional//"00:00")|split(":")[1]|tonumber/60) )
+#       )
+#       |.duration=(.duration*10|floor|./10)
+#       | if (.duration < 2 ) then .duration=7 else .duration=.duration end
+#     )
+#     |.[]
+#     '
+#
+# elif [[ "$1" == "add_total" ]];then shift
+#   jq -s -c " . += [{total:(.|map(.duration)|add//0|.*100|floor|./100)}] |.[] "
+#
+# elif [[ "$1" == "dates_of_this_week" ]];then shift
+#   : ${week:="- 0"}
+#   : ${day:="$(date_alias -d "${week} week" +%F)"}
+#
+#   seq 0 4 \
+#     | parallel "date_alias -d \"${day} - \$(( \$(date_alias +%u) - 1)) days + {} days\" +%F" \
+#     | sort \
+#     | jq -R '.' \
+#     | jq -c -s '.'
+#
+# elif [[ "$1" == "add_week" ]];then shift
+#   : ${week:="+ 1"}
+#   new_entries_with_date_keys="$( 
+#     $0 dates_of_this_week \
+#       | jq -c 'map({date:.,start:"09:00:00",stop:"16:10:00",break:"00:10"})[]' \
+#       | jq -s '.' \
+#       | jq 'map({"\(.date)":.})|add'
+#     )"
+#   cat ${working_time_file} \
+#     | jq -s '.' \
+#     | jq 'map({"\(.date)":.})|add' \
+#     | jq -c --argjson new_entries "${new_entries_with_date_keys}" \
+#       '$new_entries + . |flatten |sort_by(.date)|.[]' \
+#     | sponge ${working_time_file}
+#
+# elif [[ "$1" == "entries_of_this_week" ]];then shift
+#   cat ${working_time_file} \
+#     | jq \
+#       -s -c \
+#       --argjson this_week "$($0 dates_of_this_week)" \
+#       'map(select([.date]|inside($this_week)))[]'
+#
+# elif [[ "$1" == "this_week" ]];then shift
+#   $0 entries_of_this_week \
+#     | $0 calc_duration \
+#     | $0 add_total
+#
+# elif [[ "$1" == "duration_from_logs" ]];then shift
+#   $0 show_joined \
+#     | $0 calc_duration
+#
+# elif [[ "$1" == "update" ]];then shift
+#   new_entries_with_date_keys="$( $0 show_joined \
+#       | jq -s '.' \
+#       | jq 'map({"\(.date)":.})|add'
+#     )"
+#   cat ${working_time_file} \
+#     | jq -s '.' \
+#     | jq 'map({"\(.date)":.})|add' \
+#     | jq -c --argjson new_entries "${new_entries_with_date_keys}" \
+#       '. * $new_entries |flatten |sort_by(.date)|.[]' \
+#     | sponge ${working_time_file}
+#
+# elif [[ "$1" == "last_weeks" ]];then shift
+#   : ${weeks:="${1:-"-1,-0"}"}
+#   read -r -a array <<<"$(echo -n "$weeks" | tr ',' ' ')"
+#
+#   for i in "${array[@]}"; do
+#     cat <(week="$i" $0 this_week)
+#   done  \
+#     | jq \
+#       -s \
+#       -c \
+#       --arg count "${#array[@]}" \
+#       '.+=[
+#           {average:(
+#             .|
+#             map(select(has("total") and (.total!=0))|.total) |
+#             length as $entry_count|
+#             add|
+#             ./=($entry_count)|
+#             .*=100|
+#             floor|
+#             ./=100)
+#           },
+#           {overtime:(
+#             map(select(has("total") and (.total!=0))|.total) |
+#             length as $entry_count|
+#             add - ($entry_count * 35 )|
+#             .*=100|
+#             floor|
+#             ./=100
+#             )}
+#           ]|
+#         .[]'
+#
+# elif [[ "$1" == "week_average" ]];then shift
+#   # readarray -t array <<<"$(printf "$1" | tr ',' '\n')"
+#   # declare -p array
+#   : ${weeks:="${1:-"-1,-0"}"}
+#   read -r -a array <<<"$(echo -n "$weeks" | tr ',' ' ')"
+#
+#   for i in "${array[@]}"; do
+#     cat <(week="$i" $0 this_week)
+#   done  \
+#     | jq \
+#       -s \
+#       --arg count "${#array[@]}" \
+#       'map(select(has("total"))|.total)|{totals:(.),average:(add|./=($count|tonumber)|.*=100|floor|./=100)}'
+#
+# elif [[ "$1" == "edit" ]];then shift
+#   vim ${working_time_file}
+#
 fi
 
