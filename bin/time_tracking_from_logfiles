@@ -11,15 +11,6 @@ if [[ "${trace:=0}" -eq 1 ]];then
   export trace
 fi
 
-date_alias() {
-  if which gdate >/dev/null ; then
-    gdate "$@"
-  else
-    date "$@"
-  fi
-}
-export -f date_alias
-
 while getopts "a:h?" options; do case $options in
   a) a="$OPTARG" ;;
   h|?) help; exit ;;
@@ -40,57 +31,66 @@ elif [[ "$1" == "help" ]];then shift
     | sed -e 's/^\( *\)\([^;]*\); *shift$/\1\2/g' \
     || true
 
-elif [[ "$1" == "raw_off" ]];then shift
-  raw_log_data="$( find /private/var/log -maxdepth 1 -type f -name "system.log.[0-9]*.gz" \
-    | parallel -r 'gzip -dc {}' \
-    | tr '\0' '\n' \
-    ; cat /private/var/log/system.log \
-  )"
-  echo "$raw_log_data"
+elif [[ "$1" == "raw_off_events" ]];then shift
+  (
+    find /private/var/log -maxdepth 1 -type f -name "system.log.[0-9]*.gz" |
+      parallel -r 'gzip -dc {}' |
+      tr '\0' '\n' ;
+      cat /private/var/log/system.log 
+  ) | 
+  grep "com.apple.xpc.launchd.unmanaged.loginwindow" |
+  awk '{print $1,$2,$3}' |
+  jq -cRS ' split(" ")| { month:.[0], day:.[1], time:.[2] } '  |
+  jq -sc \
+    --arg year "$(date +%Y)" \
+    '
+    map(
+      {
+        date:("\($year) \(.month) \(.day)"|strptime("%Y %b %d")|mktime|strftime("%F")),
+        time,
+        type:"stop"
+      }
+    ) |
+    map(
+      .date_time=(.date+"T"+.time)|
+      .epoche=(.date+"T"+.time|strptime("%FT%T")|mktime|strftime("%s")|tonumber)
+    )[]
+    '
 
-elif [[ "$1" == "off" ]];then shift
-  : ${system_log_filter:="com.apple.xpc.launchd.unmanaged.loginwindow"}
-  raw_log_data="$( $0 raw_off | grep "${system_log_filter}" )"
-  raw_timestamps="$( awk '{print $1,$2,$3}' <<<"${raw_log_data}" \
-    | parallel 'date_alias -d "$(echo {})" "+%F %T"' \
-    | sort
-  )"
-  raw_json_data="$(jq -R 'split(" ")' <<<"${raw_timestamps}" \
-    | jq -s 'map({date:.[0],time:.[1]})|group_by(.date)|map({date:(.[0].date),time:(.|sort_by(.time))})'
-  )"
-  jq -c 'map(.time|=(map(.type="stop")))[]' <<<"${raw_json_data}"
-
-elif [[ "$1" == "raw_on" ]];then shift
+elif [[ "$1" == "raw_on_events" ]];then shift
   : ${on_days:="6d"}
   log show \
     --predicate 'subsystem == "com.apple.sharing" && category == "AutoUnlock" && eventMessage contains "Dynamic store enabled state"' \
     --last ${on_days} \
-    --style json \
+    --style json |
+  jq -c '
+    map(
+      {
+        date:(.timestamp|gsub(" .*$";"")),
+        time:(.timestamp|gsub("^.* ";"")|gsub("\\.[0-9]*.*$";"")),
+        epoche:(.timestamp|gsub("\\.[0-9]*.*$";"")|strptime("%F %T")|mktime|strftime("%s")|tonumber),
+        type:"start"
+      }
+    ) |
+    map(
+      .date_time=(.date+"T"+.time)
+    )[]
+  '
 
-elif [[ "$1" == "on" ]];then shift
-  ${0} raw_on |
-  jq -c 'map({date:(.timestamp|gsub(" .*";"")),time:(.timestamp|gsub("[0-9-]* ";"")|gsub("\\..*";"")),type:"start"})|group_by(.date)|map({date:(.[0].date),time:(.)})[]' |
-  jq -c -s '.|sort_by(.date)|.[1:]|.[]'
+elif [[ "$1" == "get_all_duration_events" ]];then shift
+  (
+    ${0} raw_off_events ;
+    ${0} raw_on_events
+  ) |
+  ${0} extract_duration_from_start_stop_events
 
-elif [[ "$1" == "get_new_events" ]];then shift
-  ( ${0} off ; ${0} on ) |
-      jq -sc '
-        map(
-          .time|map({
-            date,
-            time,
-            epoche:(.date +"T" + .time|strptime("%FT%T")|mktime|strftime("%s")|tonumber),
-            hour:(.time |gsub(":[0-9]{2}:[0-9]{2}$";"")|tonumber),
-            type
-          })
-        )|
-      flatten|.[]' |
-  sort -r |
+elif [[ "$1" == "extract_duration_from_start_stop_events" ]];then shift
+  jq -sc 'sort_by(.date_time)|reverse|.[]' |
   sed -n '/stop/{N;s/\n/,/g;/start/p}' |
   sed -e 's/^/[/' -e 's/$/]/' |
-  jq -s '
+  jq -cs '
   map({
-    hour:(map(select(.type=="start")|.hour)|first),
+    hour:(map(select(.type=="start")|.time|gsub(":[0-9]*:[0-9]*$";"")|tonumber)|first),
     date:(map(select(.type=="start")|.date)|first),
     start:(map(select(.type=="start")|.time)|first),
     stop:(map(select(.type=="stop")|.time)|first),
@@ -105,7 +105,25 @@ elif [[ "$1" == "get_new_events" ]];then shift
     type:(if (.hour>18) then "private" else "work" end ),
     duration_hours:((.stop_epoche - .start_epoche)/60/60|.*=10|floor|./=10),
     duration_minutes:((.stop_epoche - .start_epoche)/60|floor),
-  })' 
+  })' |
+  jq -c 'sort_by(.time)|.[]'
+
+elif [[ "$1" == "last_duration_event" ]];then shift
+  (
+    export on_days=1d;
+    ${0} raw_on_events | sed -n '$p' ; 
+    jq -cn \
+      --arg date "$(date +%F)" \
+      --arg time "$(date +%T)" \
+      '{
+        date:$date,
+        time:$time,
+        date_time:($date+"T"+$time),
+        epoche:($date +"T" + $time|strptime("%FT%T")|mktime|strftime("%s")|tonumber),
+        type:"stop"
+      }'
+  ) |
+  ${0} extract_duration_from_start_stop_events 
 
 elif [[ "$1" == "show_raw_events" ]];then shift
   cat ${time_event_file}
@@ -117,7 +135,7 @@ elif [[ "$1" == "update_events" ]];then shift
   ${0} show_raw_events |
   jq -sc 'map(.time=(.date+"T"+.start))[]' |
   jq -sc \
-    --argjson new_entries "$(${0} get_new_events)" \
+    --argjson new_entries "$(${0} get_all_duration_events | jq -sc . )" \
     '
       . + $new_entries | 
       unique_by(.time) |
@@ -129,7 +147,13 @@ elif [[ "$1" == "update_events" ]];then shift
   sponge ${time_event_file}
 
 elif [[ "$1" == "show_events" ]];then shift
-  ${0} show_raw_events |
+  ( 
+    ${0} show_raw_events ;
+    ${0} last_duration_event 
+  ) |
+  ${0} calc_duration_per_day
+
+elif [[ "$1" == "calc_duration_per_day" ]];then shift
   jq -sc '
     group_by(.date)|
     map({
@@ -156,6 +180,7 @@ elif [[ "$1" == "show_events" ]];then shift
     sort_by(.date)|
     .[]
     '
+
 
 # elif [[ "$1" == "show_joined" ]];then shift
 #   : ${default_stop_time:="16:10:00"}
