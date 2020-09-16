@@ -91,6 +91,7 @@ elif [[ "$1" == "extract_duration_from_start_stop_events" ]];then shift
   jq -cs '
   map({
     hour:(map(select(.type=="start")|.time|gsub(":[0-9]*:[0-9]*$";"")|tonumber)|first),
+    day:(map(select(.type=="start")|.date|strptime("%F")|mktime|strftime("%a"))|first),
     date:(map(select(.type=="start")|.date)|first),
     start:(map(select(.type=="start")|.time)|first),
     stop:(map(select(.type=="stop")|.time)|first),
@@ -102,8 +103,14 @@ elif [[ "$1" == "extract_duration_from_start_stop_events" ]];then shift
     time:(.date+"T"+.start),
     start,
     stop,
-    type:(if (.hour>18) then "private" else "work" end ),
-    duration_hours:((.stop_epoche - .start_epoche)/60/60|.*=10|floor|./=10),
+    hour,
+    day,
+    type:(
+      if ((.day=="Sun") or (.day=="Sat") ) then "private" 
+      elif (.hour>18) then "private" 
+      else "work" end 
+      ),
+    duration_hours:((.stop_epoche - .start_epoche)/60/60|.*=100|floor|./=100),
     duration_minutes:((.stop_epoche - .start_epoche)/60|floor),
   })' |
   jq -c 'sort_by(.time)|.[]'
@@ -158,6 +165,7 @@ elif [[ "$1" == "calc_duration_per_day" ]];then shift
     group_by(.date)|
     map({
       date:(first|.date),
+      day:(first|.date|strptime("%F")|mktime|strftime("%a")),
       work:(
         map(
           select(.type=="work")|
@@ -165,7 +173,7 @@ elif [[ "$1" == "calc_duration_per_day" ]];then shift
           elif (.duration_minutes!=null) then .duration_minutes / 60
           else 0 end
         )|
-        add//0|.*=10|floor|./=10
+        add//0|.*=100|floor|./=100
       ),
       private:(
         map(
@@ -174,7 +182,7 @@ elif [[ "$1" == "calc_duration_per_day" ]];then shift
           elif (.duration_minutes!=null) then .duration_minutes / 60
           else 0 end
         )|
-        add//0|.*=10|floor|./=10
+        add//0|.*=100|floor|./=100
       )
     })|
     sort_by(.date)|
