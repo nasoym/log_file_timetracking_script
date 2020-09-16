@@ -92,20 +92,19 @@ elif [[ "$1" == "get_new_events" ]];then shift
   map({
     hour:(map(select(.type=="start")|.hour)|first),
     date:(map(select(.type=="start")|.date)|first),
-    time_start:(map(select(.type=="start")|.time)|first),
-    time_stop:(map(select(.type=="stop")|.time)|first),
-    start:(map(select(.type=="start")|.epoche)|first),
-    stop:(map(select(.type=="stop")|.epoche)|first)
+    start:(map(select(.type=="start")|.time)|first),
+    stop:(map(select(.type=="stop")|.time)|first),
+    start_epoche:(map(select(.type=="start")|.epoche)|first),
+    stop_epoche:(map(select(.type=="stop")|.epoche)|first)
   })|
   map({
     date,
-    time:(.date+"T"+.time_start),
-    time_start,
-    time_stop,
-    hour,
+    time:(.date+"T"+.start),
+    start,
+    stop,
     type:(if (.hour>18) then "private" else "work" end ),
-    duration_hours:((.stop-.start)/60/60|.*=10|floor|./=10),
-    duration_minutes:((.stop-.start)/60|floor),
+    duration_hours:((.stop_epoche - .start_epoche)/60/60|.*=10|floor|./=10),
+    duration_minutes:((.stop_epoche - .start_epoche)/60|floor),
   })' 
 
 elif [[ "$1" == "show_raw_events" ]];then shift
@@ -116,6 +115,7 @@ elif [[ "$1" == "edit_events" ]];then shift
 
 elif [[ "$1" == "update_events" ]];then shift
   ${0} show_raw_events |
+  jq -sc 'map(.time=(.date+"T"+.start))[]' |
   jq -sc \
     --argjson new_entries "$(${0} get_new_events)" \
     '
@@ -123,6 +123,7 @@ elif [[ "$1" == "update_events" ]];then shift
       unique_by(.time) |
       flatten |
       sort_by(.time) |
+      map(del(.time)) |
       .[]
     ' |
   sponge ${time_event_file}
