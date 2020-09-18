@@ -32,8 +32,9 @@ elif [[ "$1" == "help" ]];then shift
     || true
 
 elif [[ "$1" == "raw_off_events" ]];then shift
+  : ${file_pattern:="[0-9]"}
   (
-    find /private/var/log -maxdepth 1 -type f -name "system.log.[0-9]*.gz" |
+    find /private/var/log -maxdepth 1 -type f -name "system.log.${file_pattern}*.gz" |
       parallel -r 'gzip -dc {}' |
       tr '\0' '\n' ;
       cat /private/var/log/system.log 
@@ -115,10 +116,27 @@ elif [[ "$1" == "extract_duration_from_start_stop_events" ]];then shift
   })' |
   jq -c 'sort_by(.time)|.[]'
 
-elif [[ "$1" == "last_duration_event" ]];then shift
+elif [[ "$1" == "get_last_24h_events" ]];then shift
   (
-    export on_days=1d;
-    ${0} raw_on_events | sed -n '$p' ; 
+    on_days=1d ${0} raw_on_events;
+    file_pattern="[0-1]" ${0} raw_off_events;
+    ${0} now_as_stop_event;
+  ) |
+  ${0} extract_duration_from_start_stop_events 
+
+elif [[ "$1" == "report" ]];then shift
+  ( 
+    ${0} show_raw_events ;
+    ${0} get_last_24h_events ;
+  ) |
+  jq -sc '
+    unique_by("\(.date)\(.start)\(.duration_hours)") |
+    sort_by("\(.date)\(.start)")|
+    .[]
+  ' |
+  ${0} calc_duration_per_day
+
+elif [[ "$1" == "now_as_stop_event" ]];then shift
     jq -cn \
       --arg date "$(date +%F)" \
       --arg time "$(date +%T)" \
@@ -129,8 +147,6 @@ elif [[ "$1" == "last_duration_event" ]];then shift
         epoche:($date +"T" + $time|strptime("%FT%T")|mktime|strftime("%s")|tonumber),
         type:"stop"
       }'
-  ) |
-  ${0} extract_duration_from_start_stop_events 
 
 elif [[ "$1" == "show_raw_events" ]];then shift
   cat ${time_event_file}
@@ -152,13 +168,6 @@ elif [[ "$1" == "update_events" ]];then shift
       .[]
     ' |
   sponge ${time_event_file}
-
-elif [[ "$1" == "show_events" ]];then shift
-  ( 
-    ${0} show_raw_events ;
-    ${0} last_duration_event 
-  ) |
-  ${0} calc_duration_per_day
 
 elif [[ "$1" == "calc_duration_per_day" ]];then shift
   jq -sc '
@@ -331,5 +340,9 @@ elif [[ "$1" == "calc_duration_per_day" ]];then shift
 # elif [[ "$1" == "edit" ]];then shift
 #   vim ${working_time_file}
 #
+else
+  echo "unknown command: $@" >&2
+  exit 1
+
 fi
 
