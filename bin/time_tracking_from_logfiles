@@ -24,12 +24,7 @@ if [[ "$#" -eq 0 ]];then
   ${0} help
 
 elif [[ "$1" == "help" ]];then shift
-  cat ${0} \
-    | grep -A5 '^elif' \
-    | grep -E '(^elif|shift$)' \
-    | sed -e 's/^elif *\[\{1,\} *"\$1" *=\{1,\} *"\([^"]*\)" *\]\{1,\} *; *then *shift *\(#\{0,\}\) *\(.*\)$/\1 \2 \3/g' \
-    | sed -e 's/^\( *\)\([^;]*\); *shift$/\1\2/g' \
-    || true
+  bash_scripts show_commands "${0}"
 
 elif [[ "$1" == "raw_off_events" ]];then shift
   : ${file_pattern:="[0-9]"}
