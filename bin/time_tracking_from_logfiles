@@ -53,10 +53,20 @@ elif [[ "$1" == "raw_off_events" ]];then shift
       }
     ) |
     map(
-      .date_time=(.date+"T"+.time)|
       .epoche=(.date+"T"+.time|strptime("%FT%T")|mktime|strftime("%s")|tonumber)
     )[]
     '
+
+elif [[ "$1" == "now_as_stop_event" ]];then shift
+    jq -cn \
+      --arg date "$(date +%F)" \
+      --arg time "$(date +%T)" \
+      '{
+        date:$date,
+        time:$time,
+        type:"stop",
+        epoche:($date +"T" + $time|strptime("%FT%T")|mktime|strftime("%s")|tonumber)
+      }'
 
 elif [[ "$1" == "raw_on_events" ]];then shift
   : ${on_days:="6d"}
@@ -69,24 +79,14 @@ elif [[ "$1" == "raw_on_events" ]];then shift
       {
         date:(.timestamp|gsub(" .*$";"")),
         time:(.timestamp|gsub("^.* ";"")|gsub("\\.[0-9]*.*$";"")),
-        epoche:(.timestamp|gsub("\\.[0-9]*.*$";"")|strptime("%F %T")|mktime|strftime("%s")|tonumber),
-        type:"start"
+        type:"start",
+        epoche:(.timestamp|gsub("\\.[0-9]*.*$";"")|strptime("%F %T")|mktime|strftime("%s")|tonumber)
       }
-    ) |
-    map(
-      .date_time=(.date+"T"+.time)
     )[]
   '
 
-elif [[ "$1" == "get_all_duration_events" ]];then shift
-  (
-    ${0} raw_off_events ;
-    ${0} raw_on_events
-  ) |
-  ${0} extract_duration_from_start_stop_events
-
 elif [[ "$1" == "extract_duration_from_start_stop_events" ]];then shift
-  jq -sc 'sort_by(.date_time)|reverse|.[]' |
+  jq -sc 'sort_by("\(.date)\(.time)")|reverse|.[]' |
   sed -n '/stop/{N;s/\n/,/g;/start/p}' |
   sed -e 's/^/[/' -e 's/$/]/' |
   jq -cs '
@@ -101,11 +101,8 @@ elif [[ "$1" == "extract_duration_from_start_stop_events" ]];then shift
   })|
   map({
     date,
-    time:(.date+"T"+.start),
     start,
     stop,
-    hour,
-    day,
     type:(
       if ((.day=="Sun") or (.day=="Sat") ) then "private" 
       elif (.hour>18) then "private" 
@@ -113,10 +110,18 @@ elif [[ "$1" == "extract_duration_from_start_stop_events" ]];then shift
       ),
     duration_hours:((.stop_epoche - .start_epoche)/60/60|.*=100|floor|./=100),
     duration_minutes:((.stop_epoche - .start_epoche)/60|floor),
-  })' |
-  jq -c 'sort_by(.time)|.[]'
+  })|
+  sort_by("\(.date)\(.start)")[]
+  '
 
-elif [[ "$1" == "get_last_24h_events" ]];then shift
+elif [[ "$1" == "get_all_duration_events" ]];then shift
+  (
+    ${0} raw_off_events ;
+    ${0} raw_on_events
+  ) |
+  ${0} extract_duration_from_start_stop_events
+
+elif [[ "$1" == "get_last_24h_duration_events" ]];then shift
   (
     on_days=1d ${0} raw_on_events;
     file_pattern="[0-1]" ${0} raw_off_events;
@@ -124,50 +129,8 @@ elif [[ "$1" == "get_last_24h_events" ]];then shift
   ) |
   ${0} extract_duration_from_start_stop_events 
 
-elif [[ "$1" == "report" ]];then shift
-  ( 
-    ${0} show_raw_events ;
-    ${0} get_last_24h_events ;
-  ) |
-  jq -sc '
-    unique_by("\(.date)\(.start)\(.duration_hours)") |
-    sort_by("\(.date)\(.start)")|
-    .[]
-  ' |
-  ${0} calc_duration_per_day
-
-elif [[ "$1" == "now_as_stop_event" ]];then shift
-    jq -cn \
-      --arg date "$(date +%F)" \
-      --arg time "$(date +%T)" \
-      '{
-        date:$date,
-        time:$time,
-        date_time:($date+"T"+$time),
-        epoche:($date +"T" + $time|strptime("%FT%T")|mktime|strftime("%s")|tonumber),
-        type:"stop"
-      }'
-
 elif [[ "$1" == "show_raw_events" ]];then shift
   cat ${time_event_file}
-
-elif [[ "$1" == "edit_events" ]];then shift
-  vim ${time_event_file}
-
-elif [[ "$1" == "update_events" ]];then shift
-  ${0} show_raw_events |
-  jq -sc 'map(.time=(.date+"T"+.start))[]' |
-  jq -sc \
-    --argjson new_entries "$(${0} get_all_duration_events | jq -sc . )" \
-    '
-      . + $new_entries | 
-      unique_by(.time) |
-      flatten |
-      sort_by(.time) |
-      map(del(.time)) |
-      .[]
-    ' |
-  sponge ${time_event_file}
 
 elif [[ "$1" == "calc_duration_per_day" ]];then shift
   jq -sc '
@@ -198,6 +161,41 @@ elif [[ "$1" == "calc_duration_per_day" ]];then shift
     .[]
     '
 
+elif [[ "$1" == "update" ]];then shift
+  ${0} show_raw_events |
+  jq -sc \
+    --argjson new_entries "$(${0} get_all_duration_events | jq -sc . )" \
+    '
+      . + $new_entries | 
+      unique_by("\(.date)\(.start)") |
+      flatten |
+      sort_by("\(.date)\(.start)") |
+      .[]
+    ' |
+  sponge ${time_event_file}
+
+elif [[ "$1" == "edit" ]];then shift
+  vim ${time_event_file}
+
+elif [[ "$1" == "report" ]];then shift
+  ( 
+    ${0} show_raw_events ;
+    ${0} get_last_24h_duration_events ;
+  ) |
+  jq -sc '
+    unique_by("\(.date)\(.start)\(.duration_hours)") |
+    sort_by("\(.date)\(.start)")|
+    .[]
+  ' |
+  ${0} calc_duration_per_day
+
+elif [[ "$1" == "dates_of_week" ]];then shift
+  : ${week:="- 0"}
+  : ${day_in_week:="$(date -d "${week} week" +%F)"}
+  seq 0 4 |
+    parallel "date -d \"${day_in_week} - \$(( \$(date +%u) - 1)) days + {} days\" +%F" |
+    jq -R  |
+    jq -sc 'sort'
 
 # elif [[ "$1" == "show_joined" ]];then shift
 #   : ${default_stop_time:="16:10:00"}
@@ -340,6 +338,7 @@ elif [[ "$1" == "calc_duration_per_day" ]];then shift
 # elif [[ "$1" == "edit" ]];then shift
 #   vim ${working_time_file}
 #
+
 else
   echo "unknown command: $@" >&2
   exit 1
