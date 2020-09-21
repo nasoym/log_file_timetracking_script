@@ -185,104 +185,31 @@ elif [[ "$1" == "report" ]];then shift
   ${0} calc_duration_per_day
 
 elif [[ "$1" == "dates_of_week" ]];then shift
-  : ${week:="- 0"}
+  : ${week:="${1:-"-0"}"}
+  # : ${week:="-0"}
   : ${day_in_week:="$(date -d "${week} week" +%F)"}
   seq 0 4 |
     parallel "date -d \"${day_in_week} - \$(( \$(date +%u) - 1)) days + {} days\" +%F" |
     jq -R  |
     jq -sc 'sort'
 
-# elif [[ "$1" == "show_joined" ]];then shift
-#   : ${default_stop_time:="16:10:00"}
-#   ( $0 on ; $0 off ) | jq -s -c "\
-# group_by(.date)\
-# |map({\
-#   date:.[0].date,\
-#   events:(.|map(.time)|flatten|map(del(.date))|sort_by(.time))\
-# })\
-# |map(.start=(.events|map(select(.type==\"start\"))|first|.time))\
-# |map(.stop=(.events|map(select(.type==\"stop\"))|last|.time//\"${default_stop_time}\"))\
-# |map(del(.events))\
-# |map(if(.stop==null) then del(.stop) else . end)\
-# |map(if(.start==null) then del(.start) else . end)\
-# |sort_by(.date)\
-# |.[]\
-#     "
-#
-# elif [[ "$1" == "calc_duration" ]];then shift
-#   jq -s -c '
-#     map(
-#       .duration=(
-#         ( ((.m_stop//.stop)|split(":")[0]|tonumber) + ((.m_stop//.stop)|split(":")[1]|tonumber/60) )
-#         - 
-#         ( ((.m_start//.start)|split(":")[0]|tonumber) + ((.m_start//.start)|split(":")[1]|tonumber/60) )
-#         - 
-#         ( ((.break//"00:00")|split(":")[0]|tonumber) + ((.break//"00:00")|split(":")[1]|tonumber/60) )
-#         + 
-#         ( ((.additional//"00:00")|split(":")[0]|tonumber) + ((.additional//"00:00")|split(":")[1]|tonumber/60) )
-#       )
-#       |.duration=(.duration*10|floor|./10)
-#       | if (.duration < 2 ) then .duration=7 else .duration=.duration end
-#     )
-#     |.[]
-#     '
-#
-# elif [[ "$1" == "add_total" ]];then shift
-#   jq -s -c " . += [{total:(.|map(.duration)|add//0|.*100|floor|./100)}] |.[] "
-#
-# elif [[ "$1" == "dates_of_this_week" ]];then shift
-#   : ${week:="- 0"}
-#   : ${day:="$(date_alias -d "${week} week" +%F)"}
-#
-#   seq 0 4 \
-#     | parallel "date_alias -d \"${day} - \$(( \$(date_alias +%u) - 1)) days + {} days\" +%F" \
-#     | sort \
-#     | jq -R '.' \
-#     | jq -c -s '.'
-#
-# elif [[ "$1" == "add_week" ]];then shift
-#   : ${week:="+ 1"}
-#   new_entries_with_date_keys="$( 
-#     $0 dates_of_this_week \
-#       | jq -c 'map({date:.,start:"09:00:00",stop:"16:10:00",break:"00:10"})[]' \
-#       | jq -s '.' \
-#       | jq 'map({"\(.date)":.})|add'
-#     )"
-#   cat ${working_time_file} \
-#     | jq -s '.' \
-#     | jq 'map({"\(.date)":.})|add' \
-#     | jq -c --argjson new_entries "${new_entries_with_date_keys}" \
-#       '$new_entries + . |flatten |sort_by(.date)|.[]' \
-#     | sponge ${working_time_file}
-#
-# elif [[ "$1" == "entries_of_this_week" ]];then shift
-#   cat ${working_time_file} \
-#     | jq \
-#       -s -c \
-#       --argjson this_week "$($0 dates_of_this_week)" \
-#       'map(select([.date]|inside($this_week)))[]'
-#
-# elif [[ "$1" == "this_week" ]];then shift
-#   $0 entries_of_this_week \
-#     | $0 calc_duration \
-#     | $0 add_total
-#
-# elif [[ "$1" == "duration_from_logs" ]];then shift
-#   $0 show_joined \
-#     | $0 calc_duration
-#
-# elif [[ "$1" == "update" ]];then shift
-#   new_entries_with_date_keys="$( $0 show_joined \
-#       | jq -s '.' \
-#       | jq 'map({"\(.date)":.})|add'
-#     )"
-#   cat ${working_time_file} \
-#     | jq -s '.' \
-#     | jq 'map({"\(.date)":.})|add' \
-#     | jq -c --argjson new_entries "${new_entries_with_date_keys}" \
-#       '. * $new_entries |flatten |sort_by(.date)|.[]' \
-#     | sponge ${working_time_file}
-#
+elif [[ "$1" == "week_report" ]];then shift
+  : ${weeks:="${1:-"-1,-0"}"}
+  read -r -a array <<<"$(echo -n "$weeks" | tr ',' ' ')"
+  for i in "${array[@]}"; do
+    weekdates="$(time_tracking_from_logfiles dates_of_week $i)"
+    ${0} report | 
+      jq -sc --argjson weekdates "${weekdates}" \
+      'map(select([.date]|inside($weekdates))|.work)|
+        add|
+        {
+          week:($weekdates|first|strptime("%F")|mktime|strftime("%W")),
+          total:.
+        }
+      '
+  done 
+
+
 # elif [[ "$1" == "last_weeks" ]];then shift
 #   : ${weeks:="${1:-"-1,-0"}"}
 #   read -r -a array <<<"$(echo -n "$weeks" | tr ',' ' ')"
@@ -329,9 +256,6 @@ elif [[ "$1" == "dates_of_week" ]];then shift
 #       -s \
 #       --arg count "${#array[@]}" \
 #       'map(select(has("total"))|.total)|{totals:(.),average:(add|./=($count|tonumber)|.*=100|floor|./=100)}'
-#
-# elif [[ "$1" == "edit" ]];then shift
-#   vim ${working_time_file}
 #
 
 else
