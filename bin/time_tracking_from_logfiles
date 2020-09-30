@@ -204,7 +204,7 @@ elif [[ "$1" == "week_report" ]];then shift
         add|
         {
           week:($weekdates|first|strptime("%F")|mktime|strftime("%W")),
-          total:.
+          total:(.|.*=10|floor|./=10)
         }
       '
   done 
