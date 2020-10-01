@@ -20,7 +20,6 @@ esac; done; shift $((OPTIND - 1))
 : ${time_event_file:="${HOME}/.time_tracking_events"}
 
 if [[ "$#" -eq 0 ]];then
-  :
   ${0} help
 
 elif [[ "$1" == "help" ]];then shift
@@ -172,6 +171,15 @@ elif [[ "$1" == "update" ]];then shift
 elif [[ "$1" == "edit" ]];then shift
   vim ${time_event_file}
 
+elif [[ "$1" == "report_past" ]];then shift
+  ${0} show_raw_events |
+  jq -sc '
+    unique_by("\(.date)\(.start)\(.duration_hours)") |
+    sort_by("\(.date)\(.start)")|
+    .[]
+  ' |
+  ${0} calc_duration_per_day
+
 elif [[ "$1" == "report" ]];then shift
   ( 
     ${0} show_raw_events ;
@@ -186,7 +194,6 @@ elif [[ "$1" == "report" ]];then shift
 
 elif [[ "$1" == "dates_of_week" ]];then shift
   : ${week:="${1:-"-0"}"}
-  # : ${week:="-0"}
   : ${day_in_week:="$(date -d "${week} week" +%F)"}
   seq 0 4 |
     parallel "date -d \"${day_in_week} - \$(( \$(date +%u) - 1)) days + {} days\" +%F" |
@@ -194,55 +201,52 @@ elif [[ "$1" == "dates_of_week" ]];then shift
     jq -sc 'sort'
 
 elif [[ "$1" == "week_report" ]];then shift
-  : ${weeks:="${1:-"-1,-0"}"}
+  : ${weeks:="${1:-"-2,-1,-0"}"}
   read -r -a array <<<"$(echo -n "$weeks" | tr ',' ' ')"
   for i in "${array[@]}"; do
-    weekdates="$(time_tracking_from_logfiles dates_of_week $i)"
-    ${0} report | 
-      jq -sc --argjson weekdates "${weekdates}" \
-      'map(select([.date]|inside($weekdates))|.work)|
-        add|
-        {
-          week:($weekdates|first|strptime("%F")|mktime|strftime("%W")),
-          total:(.|.*=10|floor|./=10)
-        }
-      '
+    ${0} week_details ${i}
   done 
 
+elif [[ "$1" == "week_details" ]];then shift
+  : ${week:="${1:-"-0"}"}
+  : ${default_hours:="6.5"}
+  : ${hours_today:="${default_hours}"}
+  weekdates="$(time_tracking_from_logfiles dates_of_week ${week})"
+  if [[ "${week}" == "-0" ]];then
+    ${0} report 
+  else
+    ${0} report_past 
+  fi | 
+  jq -sc \
+    --argjson weekdates "${weekdates}" \
+    --argjson default_hours "${default_hours}" \
+    --argjson hours_today "${hours_today}" \
+    --arg today "$(date +%F)" \
+  '
+    map(select([.date]|inside($weekdates)))|
+    . + ($weekdates|map({date:.,work:$default_hours})) |
+    unique_by(.date) |
+    map(
+      if (.date==$today) then
+        .work=$hours_today
+      else 
+        .
+      end
+        )|
+    map({date,work})|
+    . as $days|
+    map(.work) |
+    add|
+    $days + 
+    [{
+      week:($weekdates|first|strptime("%F")|mktime|strftime("%W")),
+      total:(.|.*=10|floor|./=10)
+    }] |
+      .[]
+  '
 
-# elif [[ "$1" == "last_weeks" ]];then shift
-#   : ${weeks:="${1:-"-1,-0"}"}
-#   read -r -a array <<<"$(echo -n "$weeks" | tr ',' ' ')"
-#
-#   for i in "${array[@]}"; do
-#     cat <(week="$i" $0 this_week)
-#   done  \
-#     | jq \
-#       -s \
-#       -c \
-#       --arg count "${#array[@]}" \
-#       '.+=[
-#           {average:(
-#             .|
-#             map(select(has("total") and (.total!=0))|.total) |
-#             length as $entry_count|
-#             add|
-#             ./=($entry_count)|
-#             .*=100|
-#             floor|
-#             ./=100)
-#           },
-#           {overtime:(
-#             map(select(has("total") and (.total!=0))|.total) |
-#             length as $entry_count|
-#             add - ($entry_count * 35 )|
-#             .*=100|
-#             floor|
-#             ./=100
-#             )}
-#           ]|
-#         .[]'
-#
+
+
 # elif [[ "$1" == "week_average" ]];then shift
 #   # readarray -t array <<<"$(printf "$1" | tr ',' '\n')"
 #   # declare -p array
