@@ -205,7 +205,20 @@ elif [[ "$1" == "week_report" ]];then shift
   read -r -a array <<<"$(echo -n "$weeks" | tr ',' ' ')"
   for i in "${array[@]}"; do
     ${0} week_details ${i}
-  done 
+  done |
+    jq -c -s '
+      . as $all|
+      map(select(has("total")))|
+      length as $length|
+      map(.total)|
+      add|
+      ./=$length|
+      .*=10|floor|./=10|
+      . as $average|
+      $all +
+      [{average:$average,overtime:(($average*$length-35*$length)|.*=10|floor|./=10)}]|
+      .[]
+    '
 
 elif [[ "$1" == "week_details" ]];then shift
   : ${week:="${1:-"-0"}"}
@@ -229,6 +242,8 @@ elif [[ "$1" == "week_details" ]];then shift
     map(
       if (.date==$today) then
         .work=$hours_today
+      elif (.work==0) then
+        .work=$default_hours
       else 
         .
       end
@@ -245,22 +260,6 @@ elif [[ "$1" == "week_details" ]];then shift
       .[]
   '
 
-
-
-# elif [[ "$1" == "week_average" ]];then shift
-#   # readarray -t array <<<"$(printf "$1" | tr ',' '\n')"
-#   # declare -p array
-#   : ${weeks:="${1:-"-1,-0"}"}
-#   read -r -a array <<<"$(echo -n "$weeks" | tr ',' ' ')"
-#
-#   for i in "${array[@]}"; do
-#     cat <(week="$i" $0 this_week)
-#   done  \
-#     | jq \
-#       -s \
-#       --arg count "${#array[@]}" \
-#       'map(select(has("total"))|.total)|{totals:(.),average:(add|./=($count|tonumber)|.*=100|floor|./=100)}'
-#
 
 else
   echo "unknown command: $@" >&2
