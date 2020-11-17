@@ -18,12 +18,28 @@ esac; done; shift $((OPTIND - 1))
 
 : ${working_time_file:="${HOME}/.time_tracking_from_logfiles"}
 : ${time_event_file:="${HOME}/.time_tracking_events"}
+: ${time_work_private_file:="${HOME}/.time_work_private"}
 
 if [[ "$#" -eq 0 ]];then
   ${0} help
 
 elif [[ "$1" == "help" ]];then shift
   bash_scripts show_commands "${0}"
+
+elif [[ "$1" == "set_now_work" ]];then shift
+  ${0} set_work_private work
+
+elif [[ "$1" == "set_now_private" ]];then shift
+  ${0} set_work_private private
+
+elif [[ "$1" == "set_work_private" ]];then shift
+  type="${1}"; shift
+  : ${date:="$(date +%FT%T)"}
+  jq -n -c \
+    --arg date "${date}" \
+    --arg type "${type}" \
+    '{date:$date,epoche:($date|strptime("%FT%T")|mktime|strftime("%s")|tonumber),type:$type}' |
+  tee -a ${time_work_private_file}
 
 elif [[ "$1" == "raw_off_events" ]];then shift
   : ${file_pattern:="[0-9]"}
@@ -83,7 +99,9 @@ elif [[ "$1" == "extract_duration_from_start_stop_events" ]];then shift
   jq -sc 'sort_by("\(.date)\(.time)")|reverse|.[]' |
   sed -n '/stop/{N;s/\n/,/g;/start/p}' |
   sed -e 's/^/[/' -e 's/$/]/' |
-  jq -cs '
+  jq -cs \
+  --slurpfile work_private ${time_work_private_file} \
+    '
   map({
     hour:(map(select(.type=="start")|.time|gsub(":[0-9]*:[0-9]*$";"")|tonumber)|first),
     day:(map(select(.type=="start")|.date|strptime("%F")|mktime|strftime("%a"))|first),
@@ -93,12 +111,28 @@ elif [[ "$1" == "extract_duration_from_start_stop_events" ]];then shift
     start_epoche:(map(select(.type=="start")|.epoche)|first),
     stop_epoche:(map(select(.type=="stop")|.epoche)|first)
   })|
-  map({
+  map(
+    (
+      .start_epoche as $start_epoche |
+      .stop_epoche as $stop_epoche |
+      $work_private  |
+      map(
+        select(
+          ($start_epoche <= .epoche)
+          and
+          (.epoche <= $stop_epoche)
+        )|
+        .type
+      )|
+      last
+    ) as $custom_type |
+    {
     date,
     start,
     stop,
     type:(
-      if ((.day=="Sun") or (.day=="Sat") ) then "private" 
+      if ($custom_type != null) then $custom_type
+      elif ((.day=="Sun") or (.day=="Sat") ) then "private" 
       elif (.hour>18) then "private" 
       else "work" end 
       ),
