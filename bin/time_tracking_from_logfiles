@@ -103,7 +103,7 @@ elif [[ "$1" == "extract_duration_from_start_stop_events" ]];then shift
   --slurpfile work_private ${time_work_private_file} \
     '
   map({
-    hour:(map(select(.type=="start")|.time|gsub(":[0-9]*:[0-9]*$";"")|tonumber)|first),
+    start_hour:(map(select(.type=="start")|.time|gsub(":[0-9]*:[0-9]*$";"")|tonumber)|first),
     day:(map(select(.type=="start")|.date|strptime("%F")|mktime|strftime("%a"))|first),
     date:(map(select(.type=="start")|.date)|first),
     start:(map(select(.type=="start")|.time)|first),
@@ -133,7 +133,7 @@ elif [[ "$1" == "extract_duration_from_start_stop_events" ]];then shift
     type:(
       if ($custom_type != null) then $custom_type
       elif ((.day=="Sun") or (.day=="Sat") ) then "private" 
-      elif (.hour>18) then "private" 
+      elif (.start_hour>=18) then "private" 
       else "work" end 
       ),
     duration_hours:((.stop_epoche - .start_epoche)/60/60|.*=100|floor|./=100),
@@ -235,7 +235,7 @@ elif [[ "$1" == "dates_of_week" ]];then shift
     jq -sc 'sort'
 
 elif [[ "$1" == "week_report" ]];then shift
-  : ${weeks:="${1:-"-2,-1,-0"}"}
+  : ${weeks:="${1:-"-3,-2,-1,-0"}"}
   read -r -a array <<<"$(echo -n "$weeks" | tr ',' ' ')"
   for i in "${array[@]}"; do
     ${0} week_details ${i}
