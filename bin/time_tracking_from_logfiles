@@ -275,7 +275,11 @@ elif [[ "$1" == "week_details" ]];then shift
     unique_by(.date) |
     map(
       if (.date==$today) then
-        .work=$hours_today
+        if (.work < 5 ) then
+          .work=$hours_today
+        else
+          .
+        end
       elif (.work==0) then
         .work=$default_hours
       else 
