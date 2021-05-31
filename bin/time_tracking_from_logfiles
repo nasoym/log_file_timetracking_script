@@ -256,7 +256,7 @@ elif [[ "$1" == "week_report" ]];then shift
 
 elif [[ "$1" == "week_details" ]];then shift
   : ${week:="${1:-"-0"}"}
-  : ${default_hours:="6.0"}
+  : ${default_hours:="7.0"}
   : ${hours_today:="${default_hours}"}
   weekdates="$(time_tracking_from_logfiles dates_of_week ${week})"
   if [[ "${week}" == "-0" ]];then
