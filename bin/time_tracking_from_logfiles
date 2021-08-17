@@ -229,7 +229,7 @@ elif [[ "$1" == "report" ]];then shift
 elif [[ "$1" == "dates_of_week" ]];then shift
   : ${week:="${1:-"-0"}"}
   : ${day_in_week:="$(date -d "${week} week" +%F)"}
-  seq 0 4 |
+  seq 0 6 |
     parallel "date -d \"${day_in_week} - \$(( \$(date +%u) - 1)) days + {} days\" +%F" |
     jq -R  |
     jq -sc 'sort'
@@ -256,7 +256,7 @@ elif [[ "$1" == "week_report" ]];then shift
 
 elif [[ "$1" == "week_details" ]];then shift
   : ${week:="${1:-"-0"}"}
-  : ${default_hours:="7.0"}
+  : ${default_hours:="0.0"}
   : ${hours_today:="${default_hours}"}
   weekdates="$(time_tracking_from_logfiles dates_of_week ${week})"
   if [[ "${week}" == "-0" ]];then
