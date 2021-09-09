@@ -268,7 +268,11 @@ elif [[ "$1" == "week_details" ]];then shift
   : ${week:="${1:-"-0"}"}
   : ${hours_today:="5.0"}
   : ${hours_per_week:="35.0"}
-  weekdates="$(time_tracking_from_logfiles dates_of_week ${week})"
+  if [[ "${week}" =~ ^(\+|-)[0-9]+$ ]]; then
+    weekdates="$(time_tracking_from_logfiles dates_of_week ${week})"
+  elif [[ "${week}" =~ ^[0-9]+$ ]]; then
+    weekdates="$(time_tracking_from_logfiles dates_of_week ${week})"
+  fi
   if [[ "${week}" == "-0" ]];then
     ${0} report 
   else
