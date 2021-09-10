@@ -271,7 +271,9 @@ elif [[ "$1" == "week_details" ]];then shift
   if [[ "${week}" =~ ^(\+|-)[0-9]+$ ]]; then
     weekdates="$(time_tracking_from_logfiles dates_of_week ${week})"
   elif [[ "${week}" =~ ^[0-9]+$ ]]; then
-    weekdates="$(time_tracking_from_logfiles dates_of_week ${week})"
+    weekdates="$(
+      day_in_week="$(date -d "$(date +%Y)-01-01 + $(( ${week} * 7 ))  days" +%F)" time_tracking_from_logfiles dates_of_week 
+      )"
   fi
   if [[ "${week}" == "-0" ]];then
     ${0} report 
@@ -322,6 +324,10 @@ elif [[ "$1" == "week_details" ]];then shift
     }] |
       .[]
   '
+elif [[ "$1" == "overtime_report" ]];then shift
+  : ${start_week:="${1:-"$(( $(date +%U) - 5)) "}"}
+  ${0} week_report $(seq -s, ${start_week} $(date +%U)) | 
+    jq -s -c 'map(select(.overtime!=null))[]'
 
 else
   echo "unknown command: $@" >&2
