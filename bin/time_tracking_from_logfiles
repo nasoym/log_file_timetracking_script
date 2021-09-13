@@ -325,7 +325,7 @@ elif [[ "$1" == "week_details" ]];then shift
       .[]
   '
 elif [[ "$1" == "overtime_report" ]];then shift
-  : ${start_week:="${1:-"$(( $(date +%U) - 5)) "}"}
+  : ${start_week:="${1:-"$(( $(date +%U) - 15)) "}"}
   ${0} week_report $(seq -s, ${start_week} $(date +%U)) | 
     jq -s -c 'map(select(.overtime!=null))[]'
 
