@@ -226,24 +226,7 @@ elif [[ "$1" == "report" ]];then shift
   ' |
   ${0} calc_duration_per_day
 
-elif [[ "$1" == "dates_of_week" ]];then shift
-  : ${week:="${1:-"-0"}"}
-  : ${day_in_week:="$(date -d "${week} week" +%F)"}
-  seq 0 6 |
-    parallel "date -d \"${day_in_week} - \$(( \$(date +%u) - 1)) days + {} days\" +%F\ %a\ %u" |
-    jq -R  |
-    jq -sc \
-      --argjson default_hours '[8.5,8.5,8,5,5,0,0]' \
-      'map(
-        split(" ")
-        |{
-          date:.[0],
-          day:.[1],
-          work:($default_hours[.[2]|tonumber|.-=1]),
-          private:0
-        })
-      |sort_by(.date)
-      '
+
 elif [[ "$1" == "month_report" ]];then shift
   ${0} week_report -5,-4,-3,-2,-1,-0
 
@@ -264,17 +247,48 @@ elif [[ "$1" == "week_report" ]];then shift
       | .[]
     '
 
+elif [[ "$1" == "dates_of_week" ]];then shift
+  : ${week:="${1:-"-0"}"}
+  : ${day_in_week:="$(date -d "${week} week" +%F)"}
+  # seq 0 6 |
+  #   parallel "date -d \"${day_in_week} - \$(( \$(date +%u) - 1)) days + {} days\" +%F\ %a\ %u" |
+  for i in {0..6}; do
+    date -d "${day_in_week} - $(( $(date -d "${day_in_week}" +%u) -1 )) days + ${i} days" +%F\ %a\ %u
+  done |
+    jq -R  |
+    jq -sc \
+      --argjson default_hours '[8.5,8.5,8,5,5,0,0]' \
+      'map(
+        split(" ")
+        |{
+          date:.[0],
+          day:.[1],
+          work:($default_hours[.[2]|tonumber|.-=1]),
+          private:0
+        })
+      |sort_by(.date)
+      '
+
+elif [[ "$1" == "get_monday" ]];then shift
+  : ${week:="${1:-"-0"}"}
+  : ${day_in_week:="$(date -d "${week} week" +%F)"}
+  for i in {0..6}; do
+    date -d "${day_in_week} - $(( $(date -d "${day_in_week}" +%u) -1 )) days + ${i} days" +%F\ %a\ %u
+  done
+
+elif [[ "$1" == "week_dates" ]];then shift
+  : ${week:="${1:-"-0"}"}
+  if [[ "${week}" =~ ^(\+|-)[0-9]+$ ]]; then
+    ${0} dates_of_week ${week}
+  elif [[ "${week}" =~ ^[0-9]+$ ]]; then
+    day_in_week="$(date -d "$(date +%Y)-01-01 + $(( ${week} * 7 ))  days" +%F)" ${0} dates_of_week 
+  fi
+
 elif [[ "$1" == "week_details" ]];then shift
   : ${week:="${1:-"-0"}"}
   : ${hours_today:="5.0"}
   : ${hours_per_week:="35.0"}
-  if [[ "${week}" =~ ^(\+|-)[0-9]+$ ]]; then
-    weekdates="$(time_tracking_from_logfiles dates_of_week ${week})"
-  elif [[ "${week}" =~ ^[0-9]+$ ]]; then
-    weekdates="$(
-      day_in_week="$(date -d "$(date +%Y)-01-01 + $(( ${week} * 7 ))  days" +%F)" time_tracking_from_logfiles dates_of_week 
-      )"
-  fi
+  weekdates="$(${0} week_dates ${week})"
   if [[ "${week}" == "-0" ]];then
     ${0} report 
   else
