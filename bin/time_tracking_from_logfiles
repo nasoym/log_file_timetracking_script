@@ -339,9 +339,8 @@ elif [[ "$1" == "week_details" ]];then shift
       .[]
   '
 elif [[ "$1" == "overtime_report" ]];then shift
-  : ${start_week:="${1:-"$(( $(date +%U) - 15)) "}"}
-  ${0} week_report $(seq -s, ${start_week} $(date +%U)) | 
-    jq -s -c 'map(select(.overtime!=null))[]'
+  ${0} week_report $(seq 1 $(( $(date +%V | sed 's/^0*//g' ) - 1 )) | tr '\n' ',') | 
+    jq -sc 'map(select(.overtime!=null))[]'
 
 else
   echo "unknown command: $@" >&2
