@@ -34,12 +34,14 @@ elif [[ "$1" == "set_now_private" ]];then shift
 
 elif [[ "$1" == "set_work_private" ]];then shift
   type="${1}"; shift
-  : ${date:="$(date +%FT%T)"}
+  : ${date:="$(date +%F)"}
+  : ${time:="$(date +%T)"}
   jq -n -c \
     --arg date "${date}" \
+    --arg time "${time}" \
     --arg type "${type}" \
-    '{date:$date,epoche:($date|strptime("%FT%T")|mktime|strftime("%s")|tonumber),type:$type}' |
-  tee -a ${time_work_private_file}
+    '{date:$date,start:$time,stop:$time,type:$type,duration_hours:0,duration_minutes:0}' |
+  tee -a ${time_event_file}
 
 elif [[ "$1" == "raw_off_events" ]];then shift
   : ${file_pattern:="[0-9]"}
