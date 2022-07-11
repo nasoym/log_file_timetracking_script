@@ -152,9 +152,10 @@ elif [[ "$1" == "get_all_duration_events" ]];then shift
   ${0} extract_duration_from_start_stop_events
 
 elif [[ "$1" == "get_last_24h_duration_events" ]];then shift
+    # file_pattern="[0-1]" ${0} raw_off_events;
   (
     on_days=1d ${0} raw_on_events;
-    file_pattern="[0-1]" ${0} raw_off_events;
+    file_pattern="[0-9]" ${0} raw_off_events;
     ${0} now_as_stop_event;
   ) |
   ${0} extract_duration_from_start_stop_events 
