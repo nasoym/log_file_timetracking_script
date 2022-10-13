@@ -43,31 +43,54 @@ elif [[ "$1" == "set_work_private" ]];then shift
     '{date:$date,start:$time,stop:$time,type:$type,duration_hours:0,duration_minutes:0}' |
   tee -a ${time_event_file}
 
+# elif [[ "$1" == "raw_off_events" ]];then shift
+#   : ${file_pattern:="[0-9]"}
+#   (
+#     find /private/var/log -maxdepth 1 -type f -name "system.log.${file_pattern}*.gz" |
+#       parallel -r 'gzip -dc {}' |
+#       tr '\0' '\n' ;
+#       cat /private/var/log/system.log 
+#   ) | 
+#   grep "com.apple.xpc.launchd" |
+#   cat -
+  # grep "com.apple.xpc.launchd.unmanaged.loginwindow" |
+  # awk '{print $1,$2,$3}' |
+  # jq -cRS ' split(" ")| { month:.[0], day:.[1], time:.[2] } '  |
+  # jq -sc \
+  #   --arg year "$(date +%Y)" \
+  #   '
+  #   map(
+  #     {
+  #       date:("\($year) \(.month) \(.day)"|strptime("%Y %b %d")|mktime|strftime("%F")),
+  #       time,
+  #       type:"stop"
+  #     }
+  #   ) |
+  #   map(
+  #     .epoche=(.date+"T"+.time|strptime("%FT%T")|mktime|strftime("%s")|tonumber)
+  #   )[]
+  #   '
+
 elif [[ "$1" == "raw_off_events" ]];then shift
-  : ${file_pattern:="[0-9]"}
-  (
-    find /private/var/log -maxdepth 1 -type f -name "system.log.${file_pattern}*.gz" |
-      parallel -r 'gzip -dc {}' |
-      tr '\0' '\n' ;
-      cat /private/var/log/system.log 
-  ) | 
-  grep "com.apple.xpc.launchd.unmanaged.loginwindow" |
-  awk '{print $1,$2,$3}' |
-  jq -cRS ' split(" ")| { month:.[0], day:.[1], time:.[2] } '  |
-  jq -sc \
-    --arg year "$(date +%Y)" \
-    '
+  : ${on_days:="6d"}
+    # --predicate 'subsystem == "com.apple.sharing" && category == "AutoUnlock" && eventMessage contains "Dynamic store enabled state"' \
+    # --predicate 'category == "CUSystemMonitor" && subsystem == "com.apple.CoreUtils" && eventMessage contains "ScreenLocked changed: yes -> no"' \
+  log show \
+    --predicate 'category == "CUSystemMonitor" && subsystem == "com.apple.CoreUtils" && eventMessage contains "ScreenLocked changed: no -> yes"' \
+    --last ${on_days} \
+    --style json |
+  jq -c '
     map(
       {
-        date:("\($year) \(.month) \(.day)"|strptime("%Y %b %d")|mktime|strftime("%F")),
-        time,
-        type:"stop"
+        date:(.timestamp|gsub(" .*$";"")),
+        time:(.timestamp|gsub("^.* ";"")|gsub("\\.[0-9]*.*$";"")),
+        type:"stop",
+        epoche:(.timestamp|gsub("\\.[0-9]*.*$";"")|strptime("%F %T")|mktime|strftime("%s")|tonumber)
       }
-    ) |
-    map(
-      .epoche=(.date+"T"+.time|strptime("%FT%T")|mktime|strftime("%s")|tonumber)
-    )[]
-    '
+    )
+    |unique
+    |.[]
+  '
 
 elif [[ "$1" == "now_as_stop_event" ]];then shift
     jq -cn \
@@ -82,8 +105,10 @@ elif [[ "$1" == "now_as_stop_event" ]];then shift
 
 elif [[ "$1" == "raw_on_events" ]];then shift
   : ${on_days:="6d"}
+    # --predicate 'subsystem == "com.apple.sharing" && category == "AutoUnlock" && eventMessage contains "Dynamic store enabled state"' \
+    # --predicate 'category == "CUSystemMonitor" && subsystem == "com.apple.CoreUtils" && eventMessage contains "ScreenLocked changed: yes -> no"' \
   log show \
-    --predicate 'subsystem == "com.apple.sharing" && category == "AutoUnlock" && eventMessage contains "Dynamic store enabled state"' \
+    --predicate 'category == "CUSystemMonitor" && subsystem == "com.apple.CoreUtils" && eventMessage contains "ScreenLocked changed: yes -> no"' \
     --last ${on_days} \
     --style json |
   jq -c '
@@ -94,7 +119,9 @@ elif [[ "$1" == "raw_on_events" ]];then shift
         type:"start",
         epoche:(.timestamp|gsub("\\.[0-9]*.*$";"")|strptime("%F %T")|mktime|strftime("%s")|tonumber)
       }
-    )[]
+    )
+    |unique
+    |.[]
   '
 
 elif [[ "$1" == "extract_duration_from_start_stop_events" ]];then shift
@@ -153,12 +180,12 @@ elif [[ "$1" == "get_all_duration_events" ]];then shift
 
 elif [[ "$1" == "get_last_24h_duration_events" ]];then shift
     # file_pattern="[0-1]" ${0} raw_off_events;
-  (
-    on_days=1d ${0} raw_on_events;
-    file_pattern="[0-9]" ${0} raw_off_events;
-    ${0} now_as_stop_event;
-  ) |
-  ${0} extract_duration_from_start_stop_events 
+  # (
+  #   on_days=1d ${0} raw_on_events;
+  #   file_pattern="[0-9]" ${0} raw_off_events;
+  #   ${0} now_as_stop_event;
+  # ) |
+  # ${0} extract_duration_from_start_stop_events 
 
 elif [[ "$1" == "show_raw_events" ]];then shift
   cat ${time_event_file}
